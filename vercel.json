@@ -1,8 +1,8 @@
 {
-  "buildCommand": "cd web && npm install && npm run build",
+  "buildCommand": "cd web && npm run build",
   "outputDirectory": "web/build",
   "installCommand": "cd web && npm install",
-  "framework": null,
+  "framework": "create-react-app",
   "rewrites": [
     {
       "source": "/(.*)",
