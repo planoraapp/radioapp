@@ -1,6 +1,9 @@
 {
-  "buildCommand": "cd web && npm run build",
+  "buildCommand": "cd web && CI=false npm run build",
   "outputDirectory": "web/build",
   "installCommand": "cd web && npm install",
-  "framework": null
+  "framework": null,
+  "env": {
+    "CI": "false"
+  }
 }
