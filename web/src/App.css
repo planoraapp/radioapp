@@ -167,6 +167,44 @@ button:focus-visible {
   flex-shrink: 0;
 }
 
+/* Botão de centralização na localização do usuário */
+.location-center-button {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #000000;
+  z-index: 20;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.location-center-button:hover {
+  background: rgba(255, 255, 255, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transform: scale(1.05);
+}
+
+.location-center-button:active {
+  transform: scale(0.95);
+}
+
+.location-center-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+}
+
 /* Seção preta inferior */
 .home-bottom-section {
   background: #000000;

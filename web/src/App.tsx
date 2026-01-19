@@ -17,6 +17,8 @@ function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [selectedRadioHome, setSelectedRadioHome] = useState<RadioStation | null>(null);
   const [selectorPosition, setSelectorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [centerLocation, setCenterLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const globeContainerRef = useRef<HTMLDivElement>(null);
 
   // Agrupar rádios por país
@@ -87,6 +89,25 @@ function App() {
     }
   }, [frequency, selectedBand, frequencies]);
 
+  // Função para obter localização do usuário e centralizar no globo
+  const handleCenterOnLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ latitude, longitude });
+          setCenterLocation({ latitude, longitude });
+        },
+        (error) => {
+          console.error('Erro ao obter localização:', error);
+          alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
+        }
+      );
+    } else {
+      alert('Geolocalização não é suportada por este navegador.');
+    }
+  };
+
   // ============================================
   // TELA 1: HOME SCREEN - Globo centralizado
   // ============================================
@@ -132,6 +153,7 @@ function App() {
                   setSelectorPosition(null);
                 }
               }}
+              centerLocation={centerLocation}
             />
           </div>
 
@@ -159,6 +181,20 @@ function App() {
               <div key={i} className="ruler-line" />
             ))}
           </div>
+
+          {/* Botão de centralização na localização do usuário */}
+          <button
+            onClick={handleCenterOnLocation}
+            className="location-center-button"
+            title="Centralizar na minha localização"
+            aria-label="Centralizar no globo na minha localização"
+          >
+            <img 
+              src="/radio-antenna.svg" 
+              alt="Antena de rádio" 
+              className="location-center-icon"
+            />
+          </button>
         </div>
 
         {/* Bottom Section - Preto com texto ou player */}

@@ -9,6 +9,7 @@ interface GlobeViewProps {
   onRadioSelect: (radio: RadioStation) => void;
   selectedRadio?: RadioStation | null;
   onSelectionPosition?: (position: { x: number; y: number } | null) => void;
+  centerLocation?: { latitude: number; longitude: number } | null;
 }
 
 interface RadioPointProps {
@@ -32,9 +33,9 @@ function RadioPoint({ position, radio, onPress, isSelected, camera }: RadioPoint
       // Tamanho base que diminui com o zoom (distância maior = pin menor)
       // Usar inverso da distância para pins menores quando zoom aumenta
       // Limitar escala mínima e máxima para garantir visibilidade
-      const baseSize = 0.08; // Tamanho base aumentado
-      const minScale = 0.05; // Escala mínima garantida
-      const maxScale = 0.3; // Escala máxima para não ficar muito grande
+      const baseSize = 0.12; // Tamanho base aumentado
+      const minScale = 0.3; // Escala mínima garantida (aumentada para melhor visibilidade)
+      const maxScale = 0.8; // Escala máxima para não ficar muito grande
       const scale = Math.max(minScale, Math.min(maxScale, baseSize / distance));
       
       // Tamanho maior para estações principais
@@ -50,7 +51,7 @@ function RadioPoint({ position, radio, onPress, isSelected, camera }: RadioPoint
   });
 
   // Tamanho base do pin (será escalado pela distância)
-  const baseRadius = radio.isMajor ? 0.025 : 0.015;
+  const baseRadius = radio.isMajor ? 0.04 : 0.03;
 
   return (
     <mesh
@@ -64,7 +65,9 @@ function RadioPoint({ position, radio, onPress, isSelected, camera }: RadioPoint
       <meshStandardMaterial
         color={isSelected || hovered ? "#ef4444" : "#3b82f6"}
         emissive={isSelected || hovered ? "#ef4444" : "#3b82f6"}
-        emissiveIntensity={isSelected || hovered ? 0.4 : 0.1}
+        emissiveIntensity={isSelected || hovered ? 0.8 : 0.5}
+        metalness={0.1}
+        roughness={0.2}
       />
     </mesh>
   );
@@ -82,13 +85,12 @@ function RadioPointsList({
   onRadioSelect: (radio: RadioStation) => void;
   camera: THREE.Camera | null;
 }) {
-  // Inicializar com todas as estações principais visíveis
+  // Inicializar com TODAS as estações visíveis
   const initialVisible = useMemo(() => {
     const visible = new Set<string>();
     radioPoints.forEach((point) => {
-      if (point.radio.isMajor) {
-        visible.add(point.radio.id);
-      }
+      // Mostrar todas as estações, não apenas as principais
+      visible.add(point.radio.id);
     });
     return visible;
   }, [radioPoints]);
@@ -102,23 +104,13 @@ function RadioPointsList({
       const cameraDistance = camera.position.length(); // Distância da câmera à origem
       
       radioPoints.forEach((point) => {
-        // Sempre mostrar estações principais (independente do zoom)
-        if (point.radio.isMajor) {
-          newVisible.add(point.radio.id);
-        } else {
-          // Mostrar estações menores quando zoom está próximo (distância <= 3.0)
-          // Aumentado o limite para garantir que apareçam mais facilmente
-          if (cameraDistance <= 3.0) {
-            newVisible.add(point.radio.id);
-          }
-        }
+        // Sempre mostrar TODAS as estações (independente do zoom)
+        newVisible.add(point.radio.id);
       });
     } else {
-      // Se não há câmera, mostrar pelo menos as principais
+      // Se não há câmera, mostrar todas as estações
       radioPoints.forEach((point) => {
-        if (point.radio.isMajor) {
-          newVisible.add(point.radio.id);
-        }
+        newVisible.add(point.radio.id);
       });
     }
     
@@ -150,16 +142,18 @@ function RadioPointsList({
   );
 }
 
-function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: GlobeViewProps) {
+function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, centerLocation }: GlobeViewProps) {
   const lastSelectedRef = useRef<string | null>(null);
   const globeGroupRef = useRef<THREE.Group>(null);
   const targetRotationRef = useRef<{ x: number; y: number } | null>(null);
   const currentRotationRef = useRef({ x: 0, y: 0 });
   const cameraRef = useRef<THREE.Camera | null>(null);
+  const controlsRef = useRef<any>(null);
   const circleRef = useRef<THREE.Mesh>(null);
+  const [rotateSpeed, setRotateSpeed] = useState(0.4);
 
   const radioPoints = useMemo<Array<{ position: [number, number, number]; radio: RadioStation }>>(() => {
-    return radios.map((radio) => {
+    const points = radios.map((radio) => {
       const phi = (90 - radio.latitude) * (Math.PI / 180);
       const theta = (radio.longitude + 180) * (Math.PI / 180);
 
@@ -167,17 +161,42 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
       const z = Math.sin(phi) * Math.sin(theta);
       const y = Math.cos(phi);
 
+      // Posicionar os pins exatamente sobre a superfície do globo (raio 1.2)
+      // Adicionar um pequeno offset (0.02) para garantir que fiquem visíveis acima da textura
+      const globeRadius = 1.2;
+      const pinOffset = 0.02; // Pequeno offset para garantir visibilidade
+      const pinDistance = globeRadius + pinOffset;
+      
       return {
-        position: [x * 1.3, y * 1.3, z * 1.3] as [number, number, number],
+        position: [x * pinDistance, y * pinDistance, z * pinDistance] as [number, number, number],
         radio
       };
     });
+    console.log(`[GlobeView] Carregadas ${points.length} estações de rádio no globo`);
+    return points;
   }, [radios]);
 
   // Detectar rádio mais próxima do centro (círculo vermelho) e rotacionar globo
   useFrame(({ camera, size }) => {
     // Sempre atualizar a referência da câmera
     cameraRef.current = camera;
+    
+    // Calcular velocidade de rotação baseada no zoom (distância da câmera)
+    const cameraDistance = camera.position.length();
+    const minDistance = 1.5;
+    const maxDistance = 5.0;
+    const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - minDistance) / (maxDistance - minDistance)));
+    // Velocidade reduz quando zoom está alto (normalizedDistance baixo)
+    // Velocidade base: 0.15 a 0.4 (quando normalizado)
+    const baseSpeed = 0.4;
+    const speedMultiplier = 0.375 + (normalizedDistance * 0.625); // Entre 0.375 e 1.0
+    const newRotateSpeed = baseSpeed * speedMultiplier;
+    
+    // Atualizar velocidade de rotação do OrbitControls
+    if (controlsRef.current) {
+      controlsRef.current.rotateSpeed = newRotateSpeed;
+    }
+    setRotateSpeed(newRotateSpeed);
     
     // Ajustar tamanho da circunferência para acompanhar o zoom
     if (circleRef.current && camera) {
@@ -205,7 +224,7 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
     let closestRadio: RadioStation | null = null;
     let closestPoint: THREE.Vector3 | null = null;
     let closestPoint3D: THREE.Vector3 | null = null;
-    let minDistance = Infinity;
+    let minPointDistance = Infinity;
 
     radioPoints.forEach((point: { position: [number, number, number]; radio: RadioStation }) => {
       const pointPos = new THREE.Vector3(...point.position);
@@ -232,8 +251,8 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
           const depthScore = Math.abs(projected.z);
           const combinedScore = distance + depthScore * 0.5;
           
-          if (combinedScore < minDistance) {
-            minDistance = combinedScore;
+          if (combinedScore < minPointDistance) {
+            minPointDistance = combinedScore;
             closestRadio = point.radio;
             closestPoint = projected;
             // Guardar posição 3D original (sem rotação do globo)
@@ -251,9 +270,20 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
       
       // Se está dentro do raio de rotação automática mas não no centro, calcular rotação necessária
       if (distance < autoRotateRadius && distance > 0.02) {
-        // Calcular offset necessário para trazer o ponto ao centro
-        // Usar a posição na tela para calcular a rotação incremental
-        const rotationSpeed = 0.02;
+        // Calcular velocidade de rotação baseada no zoom (distância da câmera)
+        // Zoom alto (distância pequena) = velocidade menor
+        // Zoom baixo (distância grande) = velocidade normal
+        const cameraDistance = camera.position.length();
+        const minDistance = 1.5; // minDistance do OrbitControls
+        const maxDistance = 5.0; // maxDistance do OrbitControls
+        // Normalizar distância entre 0 (muito próximo) e 1 (muito longe)
+        const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - minDistance) / (maxDistance - minDistance)));
+        // Velocidade reduz quando zoom está alto (normalizedDistance baixo)
+        // Velocidade base reduzida proporcionalmente: 0.3 a 1.0 (quando normalizado)
+        const baseRotationSpeed = 0.02;
+        const speedMultiplier = 0.3 + (normalizedDistance * 0.7); // Entre 0.3 e 1.0
+        const rotationSpeed = baseRotationSpeed * speedMultiplier;
+        
         const offsetX = -screenPos.y * rotationSpeed; // Inverter Y para rotação X
         const offsetY = screenPos.x * rotationSpeed;
         
@@ -275,10 +305,18 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
     }
 
     // Aplicar rotação suave ao globo
-    if (globeGroupRef.current) {
+    if (globeGroupRef.current && camera) {
       if (targetRotationRef.current) {
-        // Interpolação suave (lerp) para rotação
-        const lerpFactor = 0.05;
+        // Calcular velocidade de interpolação baseada no zoom
+        const cameraDistance = camera.position.length();
+        const minDistance = 1.5;
+        const maxDistance = 5.0;
+        const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - minDistance) / (maxDistance - minDistance)));
+        // LerpFactor reduz quando zoom está alto para rotação mais lenta
+        const baseLerpFactor = 0.05;
+        const lerpMultiplier = 0.3 + (normalizedDistance * 0.7); // Entre 0.3 e 1.0
+        const lerpFactor = baseLerpFactor * lerpMultiplier;
+        
         currentRotationRef.current.x += (targetRotationRef.current.x - currentRotationRef.current.x) * lerpFactor;
         currentRotationRef.current.y += (targetRotationRef.current.y - currentRotationRef.current.y) * lerpFactor;
         
@@ -326,8 +364,13 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
         const topojson = await import('topojson-client') as any;
         
         // Carregar TopoJSON do world-atlas
-        const worldTopo = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/world/110m.json')
-          .then(response => response.json());
+        const worldTopo = await fetch('https://unpkg.com/world-atlas@1/world/110m.json')
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+          });
         
         // Converter TopoJSON para GeoJSON
         const countries = topojson.feature(worldTopo as any, worldTopo.objects.countries as any);
@@ -421,6 +464,27 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
     
   }, []);
 
+  // Centralizar no local do usuário quando centerLocation mudar
+  useEffect(() => {
+    if (centerLocation && globeGroupRef.current) {
+      // Converter lat/lng para rotação do globo
+      // Para centralizar um ponto no globo, precisamos rotacioná-lo
+      // Latitude: -90 a 90 -> rotação X: pi/2 a -pi/2 (invertido)
+      // Longitude: -180 a 180 -> rotação Y: -pi a pi (invertido)
+      const targetX = (-centerLocation.latitude * Math.PI) / 180;
+      const targetY = (-centerLocation.longitude * Math.PI) / 180;
+      
+      // Animar suavemente para a posição alvo
+      targetRotationRef.current = { x: targetX, y: targetY };
+      currentRotationRef.current = { x: targetX, y: targetY };
+      
+      if (globeGroupRef.current) {
+        globeGroupRef.current.rotation.x = targetX;
+        globeGroupRef.current.rotation.y = targetY;
+      }
+    }
+  }, [centerLocation]);
+
   return (
     <>
       {/* Grupo do globo para aplicar rotação automática */}
@@ -466,12 +530,13 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
       <directionalLight position={[-5, -5, -5]} intensity={0.2} />
 
       <OrbitControls
+        ref={controlsRef}
         enableZoom={true}
         enablePan={true}
         enableRotate={true}
         zoomSpeed={0.6}
         panSpeed={0.5}
-        rotateSpeed={0.4}
+        rotateSpeed={rotateSpeed}
         minDistance={1.5}
         maxDistance={5}
       />
@@ -479,14 +544,20 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition }: Gl
   );
 }
 
-export default function GlobeView({ radios, onRadioSelect, selectedRadio }: GlobeViewProps) {
+export default function GlobeView({ radios, onRadioSelect, selectedRadio, onSelectionPosition, centerLocation }: GlobeViewProps) {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: 'transparent' }}>
       <Canvas
         camera={{ position: [0, 0, 2.5], fov: 60 }}
         style={{ width: '100%', height: '100%' }}
       >
-        <Globe radios={radios} onRadioSelect={onRadioSelect} selectedRadio={selectedRadio} />
+        <Globe 
+          radios={radios} 
+          onRadioSelect={onRadioSelect} 
+          selectedRadio={selectedRadio} 
+          onSelectionPosition={onSelectionPosition}
+          centerLocation={centerLocation}
+        />
       </Canvas>
     </div>
   );
