@@ -1,9 +1,10 @@
 {
-  "buildCommand": "cd web && CI=false npm run build",
+  "buildCommand": "cd web && CI=false GENERATE_SOURCEMAP=false npm run build",
   "outputDirectory": "web/build",
   "installCommand": "cd web && npm install",
   "framework": null,
   "env": {
-    "CI": "false"
+    "CI": "false",
+    "GENERATE_SOURCEMAP": "false"
   }
 }
