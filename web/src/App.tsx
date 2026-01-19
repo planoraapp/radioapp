@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import GlobeView from './components/GlobeView';
 import { RADIO_STATIONS, RadioStation } from './data/radios';
-import { Play, Pause, SkipForward, SkipBack, Menu, Search, ArrowLeft, Heart, Share2 } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Menu, Search, ArrowLeft, Heart, Share2, ChevronRight, ArrowRight, X, Settings, User, Star } from 'lucide-react';
 import './App.css';
 
 type View = 'home' | 'countries' | 'player';
@@ -14,6 +14,10 @@ function App() {
   const [selectedBand, setSelectedBand] = useState<'FM' | 'AM'>('FM');
   const [favorites, setFavorites] = useState<RadioStation[]>([]);
   const [currentSong, setCurrentSong] = useState({ artist: 'Bob Dylan', title: 'One More Cup of Coffee' });
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [selectedRadioHome, setSelectedRadioHome] = useState<RadioStation | null>(null);
+  const [selectorPosition, setSelectorPosition] = useState<{ x: number; y: number } | null>(null);
+  const globeContainerRef = useRef<HTMLDivElement>(null);
 
   // Agrupar rádios por país
   const radiosByCountry = RADIO_STATIONS.reduce((acc, radio) => {
@@ -83,96 +87,188 @@ function App() {
     }
   }, [frequency, selectedBand, frequencies]);
 
-  // TELA INICIAL - Home com globo e países espalhados
+  // ============================================
+  // TELA 1: HOME SCREEN - Globo centralizado
+  // ============================================
   if (view === 'home') {
     return (
-      <div className="min-h-screen bg-white flex flex-col rounded-3xl overflow-hidden">
-        {/* Top Section - Globo centralizado com países espalhados */}
-        <div className="flex-1 relative bg-white overflow-hidden" style={{ minHeight: '60vh' }}>
-          {/* Globo 3D centralizado */}
-          <div className="absolute inset-0 flex items-center justify-center z-10">
-            <div className="w-full max-w-md h-64">
-              <GlobeView
-                radios={RADIO_STATIONS}
-                onRadioSelect={handleRadioSelect}
-              />
-            </div>
+      <div className="app-screen app-home">
+        {/* Barra de navegação superior */}
+        <div className="home-nav-bar">
+          <button 
+            onClick={() => setView('countries')}
+            className="nav-countries-button"
+          >
+            Countries
+          </button>
+        </div>
+
+        {/* Top Section - Branco com globo */}
+        <div className="home-top-section">
+          {/* Globo 3D - Aumentado e centralizado */}
+          <div className="globe-container" ref={globeContainerRef}>
+            <GlobeView
+              radios={RADIO_STATIONS}
+              onRadioSelect={(radio) => {
+                setSelectedRadioHome(radio);
+                setSelectedRadio(radio);
+                const freq = parseFloat(radio.frequency.replace(' FM', '').replace(' AM', ''));
+                setFrequency(freq);
+              }}
+              selectedRadio={selectedRadioHome}
+              onSelectionPosition={(position) => {
+                if (position && globeContainerRef.current) {
+                  const containerRect = globeContainerRef.current.getBoundingClientRect();
+                  const topSectionRect = globeContainerRef.current.closest('.home-top-section')?.getBoundingClientRect();
+                  if (topSectionRect) {
+                    // Converter posição do canvas para posição relativa ao home-top-section
+                    const relativeX = position.x + (containerRect.left - topSectionRect.left);
+                    const relativeY = position.y + (containerRect.top - topSectionRect.top);
+                    setSelectorPosition({ x: relativeX, y: relativeY });
+                  } else {
+                    setSelectorPosition(position);
+                  }
+                } else {
+                  setSelectorPosition(null);
+                }
+              }}
+            />
           </div>
 
-          {/* Países espalhados ao redor */}
-          <div className="absolute inset-0 p-8 z-0">
-            {countries.map((country, index) => {
-              const positions = [
-                { top: '8%', left: '12%' },
-                { top: '15%', left: '75%' },
-                { top: '30%', left: '20%' },
-                { top: '40%', left: '82%' },
-                { top: '55%', left: '8%' },
-                { top: '65%', left: '70%' },
-                { top: '22%', left: '48%' },
-                { top: '50%', left: '35%' },
-              ];
-              const pos = positions[index % positions.length];
-              return (
-                <button
-                  key={country}
-                  onClick={() => setView('countries')}
-                  className="absolute text-gray-400 hover:text-black transition-colors font-medium text-sm uppercase tracking-wide"
-                  style={pos}
-                >
-                  {country.toUpperCase()}
-                </button>
-              );
-            })}
-          </div>
+          {/* Círculo vermelho - Seletor de rádio (se move para o pin quando selecionado) */}
+          <div 
+            className="radio-selector-circle"
+            style={
+              selectorPosition
+                ? {
+                    left: `${selectorPosition.x}px`,
+                    top: `${selectorPosition.y}px`,
+                    transform: 'translate(-50%, -50%)',
+                  }
+                : {
+                    left: '50%',
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                  }
+            }
+          ></div>
 
-          {/* Ruler divider */}
-          <div className="absolute bottom-0 left-0 right-0 h-px bg-gray-200">
-            <div className="flex gap-1 px-4 py-1">
-              {[...Array(30)].map((_, i) => (
-                <div key={i} className="w-px h-3 bg-gray-300" />
-              ))}
-            </div>
+          {/* Ruler divider na parte inferior */}
+          <div className="ruler-divider">
+            {[...Array(40)].map((_, i) => (
+              <div key={i} className="ruler-line" />
+            ))}
           </div>
         </div>
 
-        {/* Bottom Section - Preto com texto */}
-        <div className="bg-black text-white px-8 pt-8 pb-16" style={{ minHeight: '40vh' }}>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-2 h-2 rounded-full bg-gray-500"></div>
-            <div className="w-4 h-4 rounded-full bg-red-500"></div>
-          </div>
-          <div className="text-5xl font-light mb-3 tracking-tight">
-            Listen <span className="text-gray-400">Online</span>
-          </div>
-          <div className="text-9xl font-black tracking-tighter">
-            Radio<span className="text-red-500">.</span>
-          </div>
+        {/* Bottom Section - Preto com texto ou player */}
+        <div className="home-bottom-section">
+          {selectedRadioHome ? (
+            /* Player quando rádio selecionada */
+            <div className="home-player">
+              <div className="home-player-header">
+                <button
+                  onClick={() => {
+                    setSelectedRadioHome(null);
+                    setSelectedRadio(null);
+                    setSelectorPosition(null);
+                  }}
+                  className="home-player-close"
+                >
+                  <X className="home-player-close-icon" />
+                </button>
+              </div>
+              <div className="home-player-info">
+                <div className="home-player-station">{selectedRadioHome.name}</div>
+                <div className="home-player-location">{selectedRadioHome.city}, {selectedRadioHome.country}</div>
+                <div className="home-player-frequency">{selectedRadioHome.frequency}</div>
+              </div>
+              {isPlaying && (
+                <div className="home-player-now-playing">
+                  <div className="home-now-playing-artist">{currentSong.artist}</div>
+                  <div className="home-now-playing-title">{currentSong.title}</div>
+                </div>
+              )}
+              <div className="home-player-controls">
+                <button
+                  onClick={togglePlay}
+                  className="home-play-button"
+                >
+                  {isPlaying ? (
+                    <Pause className="home-play-icon" fill="currentColor" />
+                  ) : (
+                    <Play className="home-play-icon" fill="currentColor" />
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedRadioHome) {
+                      if (favorites.some(fav => fav.id === selectedRadioHome.id)) {
+                        setFavorites(favorites.filter(fav => fav.id !== selectedRadioHome.id));
+                      } else {
+                        setFavorites([...favorites, selectedRadioHome]);
+                      }
+                    }
+                  }}
+                  className={`home-favorite-button ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'active' : ''}`}
+                >
+                  <Heart className={`home-favorite-icon ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'filled' : ''}`} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Texto padrão quando nenhuma rádio selecionada */
+            <>
+              <div className="color-circles">
+                <div className="circle-small"></div>
+                <div className="circle-large"></div>
+              </div>
+              <div className="listen-text">
+                Listen <span className="text-gray-400">Online</span>
+              </div>
+              <div className="radio-text">
+                Radio<span className="text-red-500">.</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  // TELA DE LISTA DE PAÍSES
+  // ============================================
+  // TELA 2: CHOOSE COUNTRY - Lista de países
+  // ============================================
   if (view === 'countries') {
     return (
-      <div className="min-h-screen bg-white rounded-3xl">
+      <div className="app-screen app-countries">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <h1 className="text-gray-600 font-medium text-base">Choose Country</h1>
-          <div className="flex items-center gap-4">
-            <button className="text-gray-400 hover:text-gray-600 transition-colors">
-              <Search className="w-5 h-5" />
+        <div className="countries-header">
+          <div className="header-left">
+            <button 
+              className="icon-button"
+              onClick={() => setView('home')}
+            >
+              <X className="icon" />
             </button>
-            <button className="text-gray-400 hover:text-gray-600 transition-colors">
-              <Menu className="w-5 h-5" />
+            <h1 className="countries-title">Choose Country</h1>
+          </div>
+          <div className="header-icons">
+            <button className="icon-button">
+              <Search className="icon" />
+            </button>
+            <button 
+              className="icon-button"
+              onClick={() => setIsMenuOpen(true)}
+            >
+              <Menu className="icon" />
             </button>
           </div>
         </div>
 
         {/* Lista de países */}
-        <div className="px-6 py-4 pb-32">
-          <div className="space-y-0">
+        <div className="countries-list-container">
+          <div className="countries-list">
             {countriesWithCount.map((country) => (
               <button
                 key={country.name}
@@ -182,55 +278,126 @@ function App() {
                     handleRadioSelect(radios[0]);
                   }
                 }}
-                className="w-full text-left py-5 text-3xl font-black text-black hover:text-gray-600 transition-colors leading-tight"
+                className="country-item"
               >
                 {country.name}
-                <sup className="text-base font-normal text-gray-400 ml-2">({country.count})</sup>
+                <sup className="country-count">({country.count})</sup>
               </button>
             ))}
           </div>
         </div>
 
         {/* Footer com total */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-6">
-          <div className="flex items-center justify-end gap-2 mb-4">
-            <span className="text-sm text-gray-400 font-medium">All</span>
-            <span className="text-4xl font-black text-black">{RADIO_STATIONS.length}</span>
+        <div className="countries-footer">
+          <div className="footer-total">
+            <span className="footer-label">All</span>
+            <span className="footer-number">{RADIO_STATIONS.length}</span>
           </div>
         </div>
+
+        {/* Go Premium Section */}
+        <div className="premium-section">
+          <button className="premium-button">
+            <span>Go Premium</span>
+            <ArrowRight className="premium-arrow" />
+          </button>
+        </div>
+
+        {/* Menu Lateral */}
+        {isMenuOpen && (
+          <>
+            <div className="menu-overlay" onClick={() => setIsMenuOpen(false)}></div>
+            <div className="side-menu">
+              <div className="menu-header">
+                <h2 className="menu-title">Menu</h2>
+                <button 
+                  className="menu-close-button"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <X className="menu-close-icon" />
+                </button>
+              </div>
+
+              <div className="menu-content">
+                {/* Perfil do Usuário */}
+                <button className="menu-item">
+                  <User className="menu-item-icon" />
+                  <span className="menu-item-text">Perfil</span>
+                  <ChevronRight className="menu-item-arrow" />
+                </button>
+
+                {/* Favoritos */}
+                <div className="menu-section">
+                  <div className="menu-section-title">Favoritos ({favorites.length})</div>
+                  {favorites.length === 0 ? (
+                    <div className="menu-empty-state">
+                      Nenhuma rádio favoritada ainda
+                    </div>
+                  ) : (
+                    <div className="menu-favorites-list">
+                      {favorites.map((radio) => (
+                        <button
+                          key={radio.id}
+                          className="menu-favorite-item"
+                          onClick={() => {
+                            handleRadioSelect(radio);
+                            setIsMenuOpen(false);
+                          }}
+                        >
+                          <Star className="menu-favorite-icon" fill="currentColor" />
+                          <div className="menu-favorite-info">
+                            <div className="menu-favorite-name">{radio.name}</div>
+                            <div className="menu-favorite-location">{radio.city}, {radio.country}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Configurações */}
+                <button className="menu-item">
+                  <Settings className="menu-item-icon" />
+                  <span className="menu-item-text">Configurações</span>
+                  <ChevronRight className="menu-item-arrow" />
+                </button>
+
+                {/* Sobre */}
+                <button className="menu-item">
+                  <span className="menu-item-text">Sobre o App</span>
+                  <ChevronRight className="menu-item-arrow" />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   }
 
-  // TELA DO PLAYER
+  // ============================================
+  // TELA 3: RADIO PLAYER - Player completo
+  // ============================================
   return (
-    <div className="min-h-screen bg-white pb-24">
+    <div className="app-screen app-player">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-        <button onClick={() => setView('countries')} className="flex items-center gap-2">
-          <ArrowLeft className="w-5 h-5 text-black" strokeWidth={2} />
-          <span className="font-medium text-black text-base">{selectedRadio?.city || 'Radio'}</span>
+      <div className="player-header">
+        <button onClick={() => setView('countries')} className="back-button">
+          <ArrowLeft className="back-icon" />
+          <span className="city-name">{selectedRadio?.city || 'Radio'}</span>
         </button>
         
         {/* Toggle FM/AM */}
-        <div className="flex bg-gray-100 rounded-full p-1">
+        <div className="band-toggle">
           <button
             onClick={() => setSelectedBand('FM')}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-              selectedBand === 'FM'
-                ? 'bg-black text-white'
-                : 'bg-white text-black'
-            }`}
+            className={`toggle-button ${selectedBand === 'FM' ? 'active' : ''}`}
           >
             FM
           </button>
           <button
             onClick={() => setSelectedBand('AM')}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-              selectedBand === 'AM'
-                ? 'bg-black text-white'
-                : 'bg-white text-black'
-            }`}
+            className={`toggle-button ${selectedBand === 'AM' ? 'active' : ''}`}
           >
             AM
           </button>
@@ -238,40 +405,36 @@ function App() {
       </div>
 
       {/* Frequência grande */}
-      <div className="px-8 pt-8 pb-6 text-center">
-        <div className="text-9xl font-black text-black mb-3 tracking-tighter" style={{ fontFamily: 'monospace' }}>
-          <span className="text-gray-300 font-black">0</span>
+      <div className="frequency-display">
+        <div className="frequency-number">
+          <span className="frequency-zero">0</span>
           {frequency.toFixed(1)}
         </div>
-        <div className="text-sm text-gray-400 mt-3 font-medium">
+        <div className="station-name">
           {selectedRadio?.name || 'No station selected'}
         </div>
       </div>
 
       {/* Tuner horizontal */}
-      <div className="relative px-6 pb-6">
+      <div className="tuner-container">
         {/* Marcador central vermelho */}
-        <div className="absolute left-1/2 top-0 -translate-x-1/2 w-0.5 h-10 bg-red-500 z-20 shadow-sm"></div>
+        <div className="tuner-indicator"></div>
 
         {/* Botões laterais */}
-        <div className="absolute left-6 top-1 z-10">
-          <button
-            onClick={toggleFavorite}
-            className={`p-2 ${isFavorite ? 'text-red-500' : 'text-gray-300'}`}
-          >
-            <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} strokeWidth={2} />
-          </button>
-        </div>
-        <div className="absolute right-6 top-1 z-10">
-          <button className="p-2 text-gray-300">
-            <Share2 className="w-5 h-5" strokeWidth={2} />
-          </button>
-        </div>
+        <button
+          onClick={toggleFavorite}
+          className={`tuner-button tuner-favorite ${isFavorite ? 'active' : ''}`}
+        >
+          <Heart className={`tuner-icon ${isFavorite ? 'filled' : ''}`} />
+        </button>
+        <button className="tuner-button tuner-share">
+          <Share2 className="tuner-icon" />
+        </button>
 
         {/* Barra de frequências */}
         <div
           ref={scrollRef}
-          className="flex items-end gap-6 overflow-x-auto no-scrollbar px-[45%] h-20 cursor-grab active:cursor-grabbing"
+          className="tuner-scroll"
           onScroll={(e) => {
             const target = e.target as HTMLDivElement;
             const scrollLeft = target.scrollLeft;
@@ -287,14 +450,10 @@ function App() {
               ? Math.floor(freqNum) % 1 === 0 && freqNum % 1 === 0
               : parseInt(freq) % 100 === 0;
             return (
-              <div key={i} className="flex flex-col items-center min-w-[14px]">
-                <div className={`w-[1px] rounded-full ${
-                  isMajor ? 'h-10 bg-gray-400' : 'h-5 bg-gray-200'
-                }`}></div>
+              <div key={i} className="tuner-mark">
+                <div className={`tuner-line ${isMajor ? 'major' : 'minor'}`}></div>
                 {isMajor && (
-                  <span className="text-xs mt-2 font-medium text-gray-400">
-                    {Math.floor(freqNum)}
-                  </span>
+                  <span className="tuner-number">{Math.floor(freqNum)}</span>
                 )}
               </div>
             );
@@ -304,34 +463,32 @@ function App() {
 
       {/* Informação da música */}
       {isPlaying && (
-        <div className="px-6 pb-8 text-center">
-          <div className="text-xs text-gray-400 mb-1.5 font-medium">{currentSong.artist}</div>
-          <div className="text-xl font-black text-black">{currentSong.title}</div>
+        <div className="now-playing">
+          <div className="song-artist">{currentSong.artist}</div>
+          <div className="song-title">{currentSong.title}</div>
         </div>
       )}
 
       {/* Controles */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-8 py-10">
-        <div className="flex items-center justify-center gap-10">
-          <button className="p-2 text-gray-400 hover:text-black transition-colors">
-            <SkipBack className="w-7 h-7" strokeWidth={2.5} />
-          </button>
+      <div className="player-controls">
+        <button className="control-button">
+          <SkipBack className="control-icon" />
+        </button>
 
-          <button
-            onClick={togglePlay}
-            className="w-24 h-24 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-900 transition-colors shadow-lg"
-          >
-            {isPlaying ? (
-              <Pause className="w-10 h-10" fill="currentColor" />
-            ) : (
-              <Play className="w-10 h-10 ml-1" fill="currentColor" />
-            )}
-          </button>
+        <button
+          onClick={togglePlay}
+          className="play-button"
+        >
+          {isPlaying ? (
+            <Pause className="play-icon" fill="currentColor" />
+          ) : (
+            <Play className="play-icon" fill="currentColor" />
+          )}
+        </button>
 
-          <button className="p-2 text-gray-400 hover:text-black transition-colors">
-            <SkipForward className="w-7 h-7" strokeWidth={2.5} />
-          </button>
-        </div>
+        <button className="control-button">
+          <SkipForward className="control-icon" />
+        </button>
       </div>
     </div>
   );
