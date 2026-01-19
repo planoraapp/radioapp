@@ -107,7 +107,7 @@ function Globe({ radios, onRadioSelect }: GlobeViewProps) {
 
 export default function GlobeView({ radios, onRadioSelect }: GlobeViewProps) {
   return (
-    <div style={{ position: 'relative', width: '100%', height: '300px', background: 'transparent' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', background: 'transparent', minHeight: '300px' }}>
       <Canvas
         camera={{ position: [0, 0, 3], fov: 50 }}
         style={{ width: '100%', height: '100%' }}

@@ -16,6 +16,7 @@ html, body {
   -webkit-touch-callout: none;
   overscroll-behavior: none;
   background: white;
+  letter-spacing: -0.02em;
 }
 
 button, input, textarea, select {
@@ -66,6 +67,47 @@ button:focus-visible,
   outline: 2px solid #ef4444;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Cores exatas da referência */
+:root {
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-red: #ef4444;
+  --color-gray-light: #d1d5db;
+  --color-gray: #9ca3af;
+  --color-gray-medium: #6b7280;
+  --color-gray-dark: #4b5563;
+}
+
+/* Tipografia com tracking ajustado */
+.text-9xl {
+  font-size: 8rem;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.text-8xl {
+  font-size: 6rem;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.text-5xl {
+  font-size: 3rem;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.text-3xl {
+  font-size: 1.875rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* Bordas arredondadas para telas */
+.rounded-3xl {
+  border-radius: 1.5rem;
 }
 
 input[type="text"],
