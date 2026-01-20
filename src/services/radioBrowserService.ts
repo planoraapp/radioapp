@@ -1,6 +1,25 @@
 import { RadioStation } from '../data/radios';
 // import { searchCity } from './whosOnFirstService'; // Desabilitado: Nominatim tem CORS e rate limiting
 
+// Helper para logs apenas em desenvolvimento
+const log = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
+
+const logWarn = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(...args);
+  }
+};
+
+const logError = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(...args);
+  }
+};
+
 // Interface para os dados da API Radio Browser
 interface RadioBrowserStation {
   changeuuid: string;
@@ -133,7 +152,7 @@ async function apiRequest<T>(
           return data as T;
         }
       } catch (error) {
-        console.warn(`Erro ao conectar com ${server}:`, error);
+        logWarn(`Erro ao conectar com ${server}:`, error);
         continue; // Tenta próximo servidor
       }
     }
@@ -159,7 +178,7 @@ export async function getStationsByCountry(
     );
     return stations;
   } catch (error) {
-    console.error(`Erro ao buscar estações de ${countryCode}:`, error);
+    logError(`Erro ao buscar estações de ${countryCode}:`, error);
     return [];
   }
 }
@@ -177,7 +196,7 @@ export async function getStationsByCountryName(
     );
     return stations;
   } catch (error) {
-    console.error(`Erro ao buscar estações de ${countryName}:`, error);
+    logError(`Erro ao buscar estações de ${countryName}:`, error);
     return [];
   }
 }
@@ -192,7 +211,7 @@ export async function getPopularStations(limit: number = 500): Promise<RadioBrow
     );
     return stations;
   } catch (error) {
-    console.error('Erro ao buscar estações populares:', error);
+    logError('Erro ao buscar estações populares:', error);
     return [];
   }
 }
@@ -207,7 +226,7 @@ export async function getCountries(): Promise<Array<{ name: string; stationcount
     );
     return countries;
   } catch (error) {
-    console.error('Erro ao buscar países:', error);
+    logError('Erro ao buscar países:', error);
     return [];
   }
 }
@@ -413,17 +432,35 @@ function getCountryCenter(countryCode: string): { lat: number; lng: number } {
     CN: { lat: 35.8617, lng: 104.1954 }, // China
     IN: { lat: 20.5937, lng: 78.9629 }, // Índia
     RU: { lat: 61.524, lng: 105.3188 }, // Rússia
+    NL: { lat: 52.1326, lng: 5.2913 }, // Holanda
+    BE: { lat: 50.5039, lng: 4.4699 }, // Bélgica
+    CH: { lat: 46.8182, lng: 8.2275 }, // Suíça
+    AT: { lat: 47.5162, lng: 14.5501 }, // Áustria
+    PL: { lat: 51.9194, lng: 19.1451 }, // Polônia
+    SE: { lat: 60.1282, lng: 18.6435 }, // Suécia
+    NO: { lat: 60.4720, lng: 8.4689 }, // Noruega
+    DK: { lat: 56.2639, lng: 9.5018 }, // Dinamarca
+    FI: { lat: 61.9241, lng: 25.7482 }, // Finlândia
+    GR: { lat: 39.0742, lng: 21.8243 }, // Grécia
+    TR: { lat: 38.9637, lng: 35.2433 }, // Turquia
+    KR: { lat: 35.9078, lng: 127.7669 }, // Coreia do Sul
+    ZA: { lat: -30.5595, lng: 22.9375 }, // África do Sul
+    NZ: { lat: -40.9006, lng: 174.8860 }, // Nova Zelândia
+    CL: { lat: -35.6751, lng: -71.5430 }, // Chile
+    CO: { lat: 4.5709, lng: -74.2973 }, // Colômbia
+    PE: { lat: -9.1900, lng: -75.0152 }, // Peru
+    VE: { lat: 6.4238, lng: -66.5897 }, // Venezuela
+    EC: { lat: -1.8312, lng: -78.1834 }, // Equador
+    RO: { lat: 45.9432, lng: 24.9668 }, // Romênia (ADICIONADO)
+    HU: { lat: 47.1625, lng: 19.5033 }, // Hungria (ADICIONADO)
+    ID: { lat: -0.7893, lng: 113.9213 }, // Indonésia (ADICIONADO)
   };
 
-  // Se não encontrar no mapeamento, usar uma distribuição baseada no código do país
-  // para evitar todas ficarem em (0,0)
+  // Se não encontrar no mapeamento, retornar null para indicar que não temos dados
+  // Em vez de usar hash que gera coordenadas completamente erradas
   if (!countryCenters[countryCode.toUpperCase()]) {
-    // Gerar coordenadas pseudo-aleatórias baseadas no código do país
-    const hash = countryCode.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return {
-      lat: (hash % 180) - 90, // Entre -90 e 90
-      lng: ((hash * 7) % 360) - 180 // Entre -180 e 180
-    };
+    // Retornar (0, 0) como indicador de "desconhecido" - será tratado no código chamador
+    return { lat: 0, lng: 0 };
   }
   
   return countryCenters[countryCode.toUpperCase()];
@@ -435,29 +472,29 @@ function getCountryCenter(countryCode: string): { lat: number; lng: number } {
  */
 const countryBounds: Record<string, { minLat: number; maxLat: number; minLng: number; maxLng: number }> = {
   BR: { minLat: -35, maxLat: 5, minLng: -75, maxLng: -30 }, // Brasil
-  US: { minLat: 24, maxLat: 50, minLng: -125, maxLng: -65 }, // Estados Unidos
-  GB: { minLat: 50, maxLat: 61, minLng: -9, maxLng: 2 }, // Reino Unido
-  FR: { minLat: 42, maxLat: 51, minLng: -5, maxLng: 10 }, // França
+  US: { minLat: 18, maxLat: 72, minLng: -180, maxLng: -50 }, // Estados Unidos (incluindo Alaska e Havaí)
+  GB: { minLat: 49, maxLat: 61, minLng: -9, maxLng: 2 }, // Reino Unido (expandido)
+  FR: { minLat: 41, maxLat: 52, minLng: -6, maxLng: 10 }, // França (incluindo territórios)
   DE: { minLat: 47, maxLat: 55, minLng: 6, maxLng: 15 }, // Alemanha
   IT: { minLat: 36, maxLat: 47, minLng: 7, maxLng: 19 }, // Itália
-  ES: { minLat: 36, maxLat: 44, minLng: -10, maxLng: 5 }, // Espanha
-  CA: { minLat: 42, maxLat: 70, minLng: -140, maxLng: -50 }, // Canadá
+  ES: { minLat: 27, maxLat: 44, minLng: -19, maxLng: 5 }, // Espanha (incluindo Canárias)
+  CA: { minLat: 41, maxLat: 84, minLng: -141, maxLng: -50 }, // Canadá (expandido para incluir todas as regiões)
   MX: { minLat: 14, maxLat: 33, minLng: -118, maxLng: -86 }, // México
   AR: { minLat: -55, maxLat: -21, minLng: -74, maxLng: -53 }, // Argentina
-  PT: { minLat: 37, maxLat: 42, minLng: -10, maxLng: -6 }, // Portugal
+  PT: { minLat: 32, maxLat: 42, minLng: -32, maxLng: -6 }, // Portugal (incluindo Açores e Madeira)
   AU: { minLat: -45, maxLat: -10, minLng: 113, maxLng: 154 }, // Austrália
   JP: { minLat: 24, maxLat: 46, minLng: 123, maxLng: 146 }, // Japão
   CN: { minLat: 18, maxLat: 54, minLng: 73, maxLng: 135 }, // China
   IN: { minLat: 6, maxLat: 36, minLng: 68, maxLng: 97 }, // Índia
   RU: { minLat: 41, maxLat: 82, minLng: 19, maxLng: 169 }, // Rússia
   NL: { minLat: 50, maxLat: 54, minLng: 3, maxLng: 8 }, // Holanda
-  BE: { minLat: 49, maxLat: 51, minLng: 2, maxLng: 7 }, // Bélgica
-  CH: { minLat: 45, maxLat: 48, minLng: 6, maxLng: 11 }, // Suíça
-  AT: { minLat: 46, maxLat: 49, minLng: 9, maxLng: 17 }, // Áustria
+  BE: { minLat: 49.4, maxLat: 51.6, minLng: 2.3, maxLng: 6.5 }, // Bélgica (ajustado para coordenadas reais)
+  CH: { minLat: 45.8, maxLat: 47.8, minLng: 6, maxLng: 10.5 }, // Suíça
+  AT: { minLat: 46.3, maxLat: 49, minLng: 9.5, maxLng: 17.2 }, // Áustria
   PL: { minLat: 49, maxLat: 55, minLng: 14, maxLng: 25 }, // Polônia
   SE: { minLat: 55, maxLat: 69, minLng: 11, maxLng: 24 }, // Suécia
   NO: { minLat: 58, maxLat: 71, minLng: 5, maxLng: 31 }, // Noruega
-  DK: { minLat: 54, maxLat: 58, minLng: 8, maxLng: 13 }, // Dinamarca
+  DK: { minLat: 54.5, maxLat: 57.8, minLng: 8, maxLng: 15.2 }, // Dinamarca (incluindo Groenlândia e territórios)
   FI: { minLat: 60, maxLat: 70, minLng: 20, maxLng: 32 }, // Finlândia
   GR: { minLat: 35, maxLat: 42, minLng: 20, maxLng: 28 }, // Grécia
   TR: { minLat: 36, maxLat: 42, minLng: 26, maxLng: 45 }, // Turquia
@@ -465,10 +502,13 @@ const countryBounds: Record<string, { minLat: number; maxLat: number; minLng: nu
   ZA: { minLat: -35, maxLat: -22, minLng: 16, maxLng: 33 }, // África do Sul
   NZ: { minLat: -48, maxLat: -34, minLng: 166, maxLng: 179 }, // Nova Zelândia
   CL: { minLat: -56, maxLat: -17, minLng: -76, maxLng: -66 }, // Chile
-  CO: { minLat: -4, maxLat: 13, minLng: -79, maxLng: -66 }, // Colômbia
-  PE: { minLat: -18, maxLat: 0, minLng: -81, maxLng: -68 }, // Peru
-  VE: { minLat: 0, maxLat: 13, minLng: -74, maxLng: -59 }, // Venezuela
-  EC: { minLat: -5, maxLat: 2, minLng: -81, maxLng: -75 }, // Equador
+  CO: { minLat: -4.3, maxLat: 12.5, minLng: -79, maxLng: -66.8 }, // Colômbia (corrigido minLat)
+  PE: { minLat: -18.3, maxLat: -0.04, minLng: -81.3, maxLng: -68.7 }, // Peru
+  VE: { minLat: 0.6, maxLat: 12.2, minLng: -73.4, maxLng: -59.8 }, // Venezuela
+  EC: { minLat: -5.0, maxLat: 1.5, minLng: -81.1, maxLng: -75.2 }, // Equador
+  RO: { minLat: 43.6, maxLat: 48.2, minLng: 20.2, maxLng: 30 }, // Romênia (ADICIONADO)
+  HU: { minLat: 45.7, maxLat: 48.6, minLng: 16.1, maxLng: 22.9 }, // Hungria (ADICIONADO)
+  ID: { minLat: -11, maxLat: 6, minLng: 95, maxLng: 141 }, // Indonésia (ADICIONADO)
 };
 
 /**
@@ -479,18 +519,32 @@ function isCoordinatesInCountry(lat: number, lng: number, countryCode: string): 
   if (!bounds) {
     // Se não temos bounds para o país, usar verificação por distância do centro
     const center = getCountryCenter(countryCode);
-    const maxDistance = 30; // Graus (aproximadamente 3300km)
+    
+    // Se o centro é (0, 0), significa que não temos dados do país
+    // Neste caso, ser muito tolerante - aceitar coordenadas válidas
+    if (center.lat === 0 && center.lng === 0) {
+      // Apenas rejeitar coordenadas obviamente inválidas
+      return !(lat === 0 && lng === 0) && 
+             lat >= -90 && lat <= 90 && 
+             lng >= -180 && lng <= 180;
+    }
+    
+    // Se temos centro válido, usar verificação por distância (mais tolerante)
+    const maxDistance = 50; // Aumentado de 30 para 50 graus (mais tolerante)
     const latDiff = Math.abs(lat - center.lat);
     const lngDiff = Math.abs(lng - center.lng);
     return latDiff < maxDistance && lngDiff < maxDistance;
   }
   
-  return lat >= bounds.minLat && lat <= bounds.maxLat && 
-         lng >= bounds.minLng && lng <= bounds.maxLng;
+  // Para países com bounds, usar margem de erro para coordenadas próximas das fronteiras
+  const margin = 1.0; // Margem de 1 grau para coordenadas próximas das fronteiras
+  return lat >= bounds.minLat - margin && lat <= bounds.maxLat + margin && 
+         lng >= bounds.minLng - margin && lng <= bounds.maxLng + margin;
 }
 
 /**
  * Corrige coordenadas se estiverem fora dos limites do país
+ * Mais tolerante - só corrige se claramente fora do país
  */
 function validateAndCorrectCoordinates(
   lat: number, 
@@ -510,9 +564,19 @@ function validateAndCorrectCoordinates(
     return { lat, lng, corrected: false };
   }
   
-  // Se não estão, corrigir para o centro do país
+  // Verificar se o centro do país é válido (não é 0,0 do fallback)
   const center = getCountryCenter(normalizedCode);
-  console.warn(`Coordenadas (${lat}, ${lng}) fora dos limites do país ${normalizedCode} (${countryName}). Corrigindo para centro do país (${center.lat}, ${center.lng})`);
+  if (center.lat === 0 && center.lng === 0) {
+    // Se não temos centro válido, manter coordenadas originais
+    // (evita corrigir para coordenadas erradas geradas por hash)
+    return { lat, lng, corrected: false };
+  }
+  
+  // Se não estão, corrigir para o centro do país
+  // Em produção, reduzir logging para evitar spam no console
+  if (process.env.NODE_ENV !== 'production') {
+    logWarn(`Coordenadas (${lat.toFixed(6)}, ${lng.toFixed(6)}) fora dos limites do país ${normalizedCode} (${countryName}). Corrigindo para centro do país (${center.lat}, ${center.lng})`);
+  }
   return { lat: center.lat, lng: center.lng, corrected: true };
 }
 
@@ -626,7 +690,7 @@ export async function getStationsFromMultipleCountries(
       // Pequeno delay entre requisições para não sobrecarregar
       await new Promise((resolve) => setTimeout(resolve, 200));
     } catch (error) {
-      console.error(`Erro ao buscar estações de ${countryCode}:`, error);
+      logError(`Erro ao buscar estações de ${countryCode}:`, error);
     }
   }
 
@@ -648,7 +712,7 @@ export async function getStationsByCountryNameSearch(
 
     return transformed;
   } catch (error) {
-    console.error(`Erro ao buscar estações de ${countryName}:`, error);
+    logError(`Erro ao buscar estações de ${countryName}:`, error);
     return [];
   }
 }
@@ -665,7 +729,7 @@ export async function getPopularStationsWorldwide(limit: number = 500): Promise<
 
     return transformed;
   } catch (error) {
-    console.error('Erro ao buscar estações populares:', error);
+    logError('Erro ao buscar estações populares:', error);
     return [];
   }
 }
@@ -687,12 +751,12 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
     if (cachedTimestamp && cachedStations) {
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
-        console.log('Carregando estações do cache...');
+        log('Carregando estações do cache...');
         return JSON.parse(cachedStations);
       }
     }
 
-    console.log(`Buscando ${limit} estações populares (carregamento rápido)...`);
+    log(`Buscando ${limit} estações populares (carregamento rápido)...`);
     
     // Buscar apenas as mais populares (ordenadas por votos, limitadas)
     // Isso é muito mais rápido que carregar tudo
@@ -700,11 +764,11 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
       `/json/stations/search?hidebroken=true&limit=${limit}&order=votes&reverse=true`
     );
 
-    console.log(`Encontradas ${apiStations.length} estações populares`);
+    log(`Encontradas ${apiStations.length} estações populares`);
 
     // Transformar apenas as funcionais (já filtradas pela API com hidebroken=true)
     const workingStations = apiStations.filter((s) => s.lastcheckok === 1);
-    console.log(`Processando ${workingStations.length} estações funcionais...`);
+    log(`Processando ${workingStations.length} estações funcionais...`);
     
     // Processar todas de uma vez (limitado a 2000, então é rápido)
     const transformed = workingStations.map((s, idx) => transformToRadioStation(s, idx));
@@ -722,7 +786,7 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
       index === self.findIndex(s => s.id === station.id)
     );
 
-    console.log(`Total de ${uniqueStations.length} estações válidas processadas`);
+    log(`Total de ${uniqueStations.length} estações válidas processadas`);
 
     // Salvar no cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
@@ -730,11 +794,11 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
 
     return uniqueStations;
   } catch (error) {
-    console.error('Erro ao buscar estações populares:', error);
+    logError('Erro ao buscar estações populares:', error);
     // Tentar carregar do cache mesmo se expirado
     const cachedStations = localStorage.getItem(CACHE_KEY);
     if (cachedStations) {
-      console.log('Usando cache expirado como fallback...');
+      log('Usando cache expirado como fallback...');
       return JSON.parse(cachedStations);
     }
     return [];
@@ -768,12 +832,12 @@ export async function getPopularStationsPrioritized(
     if (cachedTimestamp && cachedStations) {
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
-        console.log('Carregando estações priorizadas do cache...');
+        log('Carregando estações priorizadas do cache...');
         return JSON.parse(cachedStations);
       }
     }
 
-    console.log(`Buscando ${totalLimit} estações priorizando regiões...`);
+    log(`Buscando ${totalLimit} estações priorizando regiões...`);
     
     // Dividir: 60% regiões priorizadas, 40% resto do mundo
     const priorityLimit = Math.floor(totalLimit * 0.6);
@@ -789,7 +853,7 @@ export async function getPopularStationsPrioritized(
     
     for (const country of primaryCountries) {
       try {
-        console.log(`Buscando estações de ${country}...`);
+        log(`Buscando estações de ${country}...`);
         const countryStations = await getStationsByCountryName(country, stationsPerPrimary + 100); // Buscar um pouco mais para garantir quantidade
         const workingStations = countryStations.filter(s => s.lastcheckok === 1);
         const transformed = workingStations
@@ -801,9 +865,9 @@ export async function getPopularStationsPrioritized(
           });
         
         allStations.push(...transformed);
-        console.log(`✓ ${country}: ${transformed.length} estações`);
+        log(`✓ ${country}: ${transformed.length} estações`);
       } catch (e) {
-        console.warn(`Erro ao buscar estações de ${country}:`, e);
+        logWarn(`Erro ao buscar estações de ${country}:`, e);
       }
     }
     
@@ -817,7 +881,7 @@ export async function getPopularStationsPrioritized(
       if (allStations.length >= priorityLimit) break;
       
       try {
-        console.log(`Buscando estações de ${country}...`);
+        log(`Buscando estações de ${country}...`);
         const countryStations = await getStationsByCountryName(country, stationsPerCountry + 100);
         const workingStations = countryStations.filter(s => s.lastcheckok === 1);
         const availableSlots = priorityLimit - allStations.length;
@@ -832,9 +896,9 @@ export async function getPopularStationsPrioritized(
         });
         
         allStations.push(...transformed);
-        console.log(`✓ ${country}: ${transformed.length} estações`);
+        log(`✓ ${country}: ${transformed.length} estações`);
       } catch (e) {
-        console.warn(`Erro ao buscar estações de ${country}:`, e);
+        logWarn(`Erro ao buscar estações de ${country}:`, e);
       }
     }
     
@@ -842,7 +906,7 @@ export async function getPopularStationsPrioritized(
     const remaining = totalLimit - allStations.length;
     if (remaining > 0) {
       try {
-        console.log(`Buscando ${remaining} estações globais populares...`);
+        log(`Buscando ${remaining} estações globais populares...`);
         // Buscar mais estações globais para garantir que tenhamos variedade
         const globalStations = await apiRequest<RadioBrowserStation[]>(
           `/json/stations/search?hidebroken=true&limit=${remaining + 500}&order=votes&reverse=true`
@@ -859,9 +923,9 @@ export async function getPopularStationsPrioritized(
         });
         
         allStations.push(...transformed);
-        console.log(`✓ Global: ${transformed.length} estações`);
+        log(`✓ Global: ${transformed.length} estações`);
       } catch (e) {
-        console.warn('Erro ao buscar estações globais:', e);
+        logWarn('Erro ao buscar estações globais:', e);
       }
     }
 
@@ -877,7 +941,7 @@ export async function getPopularStationsPrioritized(
       index === self.findIndex(s => s.id === station.id)
     );
 
-    console.log(`Total de ${uniqueStations.length} estações priorizadas processadas`);
+    log(`Total de ${uniqueStations.length} estações priorizadas processadas`);
 
     // Salvar no cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
@@ -885,11 +949,11 @@ export async function getPopularStationsPrioritized(
 
     return uniqueStations;
   } catch (error) {
-    console.error('Erro ao buscar estações priorizadas:', error);
+    logError('Erro ao buscar estações priorizadas:', error);
     // Tentar carregar do cache mesmo se expirado
     const cachedStations = localStorage.getItem(CACHE_KEY);
     if (cachedStations) {
-      console.log('Usando cache expirado como fallback...');
+      log('Usando cache expirado como fallback...');
       return JSON.parse(cachedStations);
     }
     return [];
@@ -927,20 +991,20 @@ export async function getAllAvailableStations(
     if (cachedTimestamp && cachedStations) {
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
-        console.log('Carregando todas as estações do cache...');
+        log('Carregando todas as estações do cache...');
         const cached = JSON.parse(cachedStations) as RadioStation[];
         // Se temos IDs existentes, filtrar apenas as novas
         if (existingStationIds && existingStationIds.size > 0) {
           const newStations = cached.filter(s => !existingStationIds.has(s.id));
-          console.log(`${cached.length} estações no cache, ${newStations.length} novas para adicionar`);
+          log(`${cached.length} estações no cache, ${newStations.length} novas para adicionar`);
           return newStations;
         }
         return cached;
       }
     }
 
-    console.log('Buscando TODAS as estações disponíveis da API (sem priorização)...');
-    console.log('Isso pode levar alguns minutos...');
+    log('Buscando TODAS as estações disponíveis da API (sem priorização)...');
+    log('Isso pode levar alguns minutos...');
     
     // Buscar em lotes grandes (1000 por vez até não ter mais)
     const allApiStations: RadioBrowserStation[] = [];
@@ -951,7 +1015,7 @@ export async function getAllAvailableStations(
 
     while (hasMore && offset < maxBatches * batchSize) {
       try {
-        console.log(`Buscando lote ${offset + 1}... (offset: ${offset})`);
+        log(`Buscando lote ${offset + 1}... (offset: ${offset})`);
         const batch = await apiRequest<RadioBrowserStation[]>(
           `/json/stations/search?hidebroken=true&limit=${batchSize}&offset=${offset}&order=votes&reverse=true`
         );
@@ -972,19 +1036,19 @@ export async function getAllAvailableStations(
         // Pequeno delay para não sobrecarregar a API
         await new Promise((resolve) => setTimeout(resolve, 300));
         
-        console.log(`✓ Carregadas ${allApiStations.length} estações da API...`);
+        log(`✓ Carregadas ${allApiStations.length} estações da API...`);
       } catch (error) {
-        console.error(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
+        logError(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
         // Continuar tentando com próximo lote
         hasMore = false;
       }
     }
 
-    console.log(`Total de estações encontradas na API: ${allApiStations.length}`);
+    log(`Total de estações encontradas na API: ${allApiStations.length}`);
 
     // Filtrar apenas funcionais
     const workingStations = allApiStations.filter((s) => s.lastcheckok === 1);
-    console.log(`Processando ${workingStations.length} estações funcionais...`);
+    log(`Processando ${workingStations.length} estações funcionais...`);
     
     // Transformar e filtrar coordenadas válidas
     const transformed: RadioStation[] = [];
@@ -1011,7 +1075,7 @@ export async function getAllAvailableStations(
       transformed.push(...validResults);
       
       if (transformed.length % 1000 === 0 && transformed.length > 0) {
-        console.log(`✓ Processadas ${transformed.length} estações válidas até agora...`);
+        log(`✓ Processadas ${transformed.length} estações válidas até agora...`);
       }
       
       // Pequeno delay entre chunks
@@ -1025,7 +1089,7 @@ export async function getAllAvailableStations(
       index === self.findIndex(s => s.id === station.id)
     );
 
-    console.log(`Total de ${uniqueStations.length} estações válidas processadas`);
+    log(`Total de ${uniqueStations.length} estações válidas processadas`);
 
     // Salvar no cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
@@ -1033,11 +1097,11 @@ export async function getAllAvailableStations(
 
     return uniqueStations;
   } catch (error) {
-    console.error('Erro ao buscar todas as estações:', error);
+    logError('Erro ao buscar todas as estações:', error);
     // Tentar carregar do cache mesmo se expirado
     const cachedStations = localStorage.getItem(CACHE_KEY);
     if (cachedStations) {
-      console.log('Usando cache expirado como fallback...');
+      log('Usando cache expirado como fallback...');
       const cached = JSON.parse(cachedStations) as RadioStation[];
       if (existingStationIds && existingStationIds.size > 0) {
         return cached.filter(s => !existingStationIds.has(s.id));
@@ -1065,12 +1129,12 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
     if (cachedTimestamp && cachedStations) {
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
-        console.log('Carregando estações do cache...');
+        log('Carregando estações do cache...');
         return JSON.parse(cachedStations);
       }
     }
 
-    console.log('Buscando todas as estações da API (pode levar alguns minutos)...');
+    log('Buscando todas as estações da API (pode levar alguns minutos)...');
     
     // Buscar em lotes grandes (1000 por vez até não ter mais)
     const allStations: RadioBrowserStation[] = [];
@@ -1100,18 +1164,18 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
         // Pequeno delay para não sobrecarregar a API
         await new Promise((resolve) => setTimeout(resolve, 500));
         
-        console.log(`Carregadas ${allStations.length} estações...`);
+        log(`Carregadas ${allStations.length} estações...`);
       } catch (error) {
-        console.error(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
+        logError(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
         hasMore = false;
       }
     }
 
-    console.log(`Total de estações encontradas: ${allStations.length}`);
+    log(`Total de estações encontradas: ${allStations.length}`);
 
     // Transformar e filtrar apenas funcionais (em paralelo com chunks para não bloquear)
     const workingStations = allStations.filter((s) => s.lastcheckok === 1);
-    console.log(`Processando ${workingStations.length} estações funcionais...`);
+    log(`Processando ${workingStations.length} estações funcionais...`);
     
     // Processar em chunks para não bloquear
     const chunkSize = 100;
@@ -1132,7 +1196,7 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
       // Atualizar estado periodicamente para mostrar progresso ao usuário
       // Atualizar a cada 500 estações processadas para não sobrecarregar o React
       if (transformed.length % 500 === 0 && transformed.length > 0) {
-        console.log(`Processadas ${transformed.length} estações válidas até agora...`);
+        log(`Processadas ${transformed.length} estações válidas até agora...`);
         // Nota: Não atualizamos o estado aqui para não causar re-renders excessivos
         // As estações serão atualizadas quando todo o processamento terminar
       }
@@ -1143,7 +1207,7 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
       }
     }
 
-    console.log(`Total processadas: ${transformed.length} estações válidas com coordenadas`);
+    log(`Total processadas: ${transformed.length} estações válidas com coordenadas`);
 
     // Salvar no cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(transformed));
@@ -1151,11 +1215,11 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
 
     return transformed;
   } catch (error) {
-    console.error('Erro ao buscar todas as estações:', error);
+    logError('Erro ao buscar todas as estações:', error);
     // Tentar carregar do cache mesmo se expirado
     const cachedStations = localStorage.getItem(CACHE_KEY);
     if (cachedStations) {
-      console.log('Usando cache expirado como fallback...');
+      log('Usando cache expirado como fallback...');
       return JSON.parse(cachedStations);
     }
     return [];

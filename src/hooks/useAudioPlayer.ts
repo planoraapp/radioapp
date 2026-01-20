@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { RadioStation } from '../data/radios';
 
+// Helper para logs apenas em desenvolvimento
+const logError = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(...args);
+  }
+};
+
 interface UseAudioPlayerReturn {
   isPlaying: boolean;
   isLoading: boolean;
@@ -190,7 +197,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
           setError(errorMessage);
           // Log apenas erros importantes
           if (audioError.code !== MediaError.MEDIA_ERR_ABORTED) {
-            console.error('Erro de áudio:', errorMessage, audioError);
+            logError('Erro de áudio:', errorMessage, audioError);
           }
         }
       });
@@ -241,7 +248,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
         }
         // Só logar e mostrar erros importantes
         if (err.message && !err.message.includes('interrupted') && !err.message.includes('Abort')) {
-          console.error('Erro ao reproduzir:', err);
+          logError('Erro ao reproduzir:', err);
           setError('Erro ao iniciar reprodução. Verifique se o stream está disponível.');
         }
         setIsPlaying(false);

@@ -4,6 +4,13 @@ import './App.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// Helper para logs apenas em desenvolvimento
+const log = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
@@ -18,10 +25,10 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('SW registered: ', registration);
+        log('SW registered: ', registration);
       })
       .catch((registrationError) => {
-        console.log('SW registration failed: ', registrationError);
+        log('SW registration failed: ', registrationError);
       });
   });
 }
@@ -36,7 +43,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 });
 
 window.addEventListener('appinstalled', () => {
-  console.log('PWA was installed');
+  log('PWA was installed');
   deferredPrompt = null;
 });
 

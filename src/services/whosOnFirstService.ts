@@ -3,6 +3,13 @@
  * https://whosonfirst.org - Gazetteer de lugares do mundo
  */
 
+// Helper para logs apenas em desenvolvimento
+const logWarn = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(...args);
+  }
+};
+
 interface WhoOnFirstPlace {
   id: number;
   name: string;
@@ -94,7 +101,7 @@ export async function searchPlace(
     });
 
     if (!response.ok) {
-      console.warn(`Erro ao buscar ${query} via Nominatim: ${response.status}`);
+      logWarn(`Erro ao buscar ${query} via Nominatim: ${response.status}`);
       return null;
     }
 
@@ -124,7 +131,7 @@ export async function searchPlace(
 
     return null;
   } catch (error) {
-    console.warn(`Erro ao buscar lugar "${query}" no Who's On First:`, error);
+    logWarn(`Erro ao buscar lugar "${query}" no Who's On First:`, error);
     return null;
   }
 }

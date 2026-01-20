@@ -4,6 +4,25 @@ import { Sphere, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { RadioStation } from '../data/radios';
 
+// Helper para logs apenas em desenvolvimento
+const log = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
+
+const logWarn = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(...args);
+  }
+};
+
+const logError = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(...args);
+  }
+};
+
 // Constantes do globo
 const GLOBE_RADIUS = 1.2;
 const MIN_DISTANCE_OFFSET = 0.15; // Margem de segurança para evitar atravessar o globo
@@ -433,7 +452,7 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
         radio
       };
     });
-    console.log(`[GlobeView] Carregadas ${points.length} estações de rádio no globo`);
+    log(`[GlobeView] Carregadas ${points.length} estações de rádio no globo`);
     return points;
   }, [radios]);
 
@@ -657,11 +676,11 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
       
       // Salvar no cache
       textureCacheRef.current.countries = texture;
-      console.log('Textura de países gerada com sucesso!');
+      log('Textura de países gerada com sucesso!');
       
       return texture;
     } catch (error) {
-      console.error('Erro ao gerar textura de países:', error);
+      logError('Erro ao gerar textura de países:', error);
       return null;
     }
   }, []);
@@ -684,7 +703,7 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
           if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
           return response.json();
         }).catch(() => {
-          console.warn('Não foi possível carregar dados de estados');
+          logWarn('Não foi possível carregar dados de estados');
           return null;
         });
       
@@ -740,11 +759,11 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
       
       // Salvar no cache
       textureCacheRef.current.states = texture;
-      console.log('Textura de estados gerada com sucesso!');
+      log('Textura de estados gerada com sucesso!');
       
       return texture;
     } catch (error) {
-      console.error('Erro ao gerar textura de estados:', error);
+      logError('Erro ao gerar textura de estados:', error);
       return null;
     }
   }, []);
@@ -820,11 +839,11 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
       
       // Salvar no cache
       textureCacheRef.current.cities = texture;
-      console.log('Textura de cidades gerada com sucesso!');
+      log('Textura de cidades gerada com sucesso!');
       
       return texture;
     } catch (error) {
-      console.error('Erro ao gerar textura de cidades:', error);
+      logError('Erro ao gerar textura de cidades:', error);
       return null;
     }
   }, [radios]);
@@ -877,7 +896,7 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
     textureCacheRef.current.combined = { lod, texture: combined };
     setCombinedTexture(combined);
     
-    console.log(`Textura combinada gerada para LOD: ${lod}`);
+    log(`Textura combinada gerada para LOD: ${lod}`);
   }, [generateCountriesTexture, generateStatesTexture, generateCitiesTexture]);
   
   // Carregar textura inicial (apenas países)

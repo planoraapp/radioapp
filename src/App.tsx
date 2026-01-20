@@ -6,6 +6,19 @@ import { getPopularStationsWorldwide, getStationsFromMultipleCountries, discover
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import './App.css';
 
+// Helper para logs apenas em desenvolvimento
+const log = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
+
+const logError = (...args: any[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(...args);
+  }
+};
+
 type View = 'home' | 'countries' | 'player';
 
 function App() {
@@ -33,9 +46,34 @@ function App() {
   const audioPlayer = useAudioPlayer();
   const { isPlaying, isLoading: isLoadingAudio, error: audioError, nowPlaying } = audioPlayer;
 
-  // Carregar TODAS as estações disponíveis da API Radio Browser
-  // Sem priorização - busca todas as estações que ainda não estão no mapa
+  // Carregar estações da API Radio Browser
+  // Primeiro carrega do cache (instantâneo), depois atualiza da API em background
   useEffect(() => {
+    // Carregar do cache imediatamente para exibição rápida
+    const loadFromCache = () => {
+      try {
+        const CACHE_KEY = 'radio_browser_stations_prioritized_cache';
+        const CACHE_TIMESTAMP_KEY = 'radio_browser_stations_prioritized_timestamp';
+        const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 horas
+        
+        const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+        const cachedStations = localStorage.getItem(CACHE_KEY);
+        
+        if (cachedTimestamp && cachedStations) {
+          const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
+          if (cacheAge < CACHE_DURATION) {
+            const stations = JSON.parse(cachedStations);
+            log(`Carregadas ${stations.length} estações do cache (carregamento rápido)`);
+            setRadioStations(stations);
+            return true; // Cache encontrado e válido
+          }
+        }
+      } catch (error) {
+        logError('Erro ao carregar do cache:', error);
+      }
+      return false; // Cache não encontrado ou inválido
+    };
+
     const loadStationsFromAPI = async () => {
       setIsLoadingStations(true);
       try {
@@ -47,30 +85,36 @@ function App() {
         const apiStations = await getPopularStationsPrioritized(20000);
         
         if (apiStations.length > 0) {
-          console.log(`Carregadas ${apiStations.length} estações populares da API Radio Browser`);
-          setRadioStations(prev => {
-            // Combinar com as existentes para não perder as estáticas
-            const existingIds = new Set(prev.map(r => r.id));
-            const newStations = apiStations.filter(s => !existingIds.has(s.id));
-            return [...prev, ...newStations];
-          });
+          log(`Carregadas ${apiStations.length} estações populares da API Radio Browser`);
+          setRadioStations(apiStations); // Substituir completamente (API tem dados mais atualizados)
         } else {
-          console.log('Nenhuma nova estação encontrada para adicionar.');
+          log('Nenhuma nova estação encontrada para adicionar.');
         }
       } catch (error) {
-        console.error('Erro ao carregar estações da API:', error);
-        // Em caso de erro, manter as estações existentes
+        logError('Erro ao carregar estações da API:', error);
+        // Em caso de erro, tentar manter as estações do cache se já foram carregadas
       } finally {
         setIsLoadingStations(false);
       }
     };
 
-    // Carregar estações da API
-    loadStationsFromAPI();
+    // Carregar do cache primeiro (instantâneo)
+    const cacheLoaded = loadFromCache();
+    
+    // Se cache não foi encontrado ou está expirado, carregar da API imediatamente
+    // Se cache foi carregado, atualizar da API em background
+    if (!cacheLoaded) {
+      loadStationsFromAPI();
+    } else {
+      // Carregar da API em background (atualizar com dados mais recentes)
+      setTimeout(() => {
+        loadStationsFromAPI();
+      }, 1000); // Aguardar 1 segundo para não bloquear renderização inicial
+    }
 
     // Atualização periódica das estações (a cada 6 horas)
     const updateInterval = setInterval(() => {
-      console.log('Atualizando estações periodicamente...');
+      log('Atualizando estações periodicamente...');
       loadStationsFromAPI();
     }, 6 * 60 * 60 * 1000); // 6 horas
 
@@ -90,7 +134,7 @@ function App() {
       
       if (stationsToFavorite.length > 0) {
         setFavorites(stationsToFavorite);
-        console.log(`Adicionadas ${stationsToFavorite.length} rádios aos favoritos automaticamente`);
+        log(`Adicionadas ${stationsToFavorite.length} rádios aos favoritos automaticamente`);
       }
     }
   }, [radioStations, favorites.length]);
@@ -235,7 +279,7 @@ function App() {
           setCenterLocation({ latitude, longitude });
         },
         (error) => {
-          console.error('Erro ao obter localização:', error);
+          logError('Erro ao obter localização:', error);
           alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
         }
       );
