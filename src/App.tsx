@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import GlobeView from './components/GlobeView';
 import { RADIO_STATIONS, RadioStation } from './data/radios';
 import { Play, Pause, SkipForward, SkipBack, Menu, Search, ArrowLeft, Heart, Share2, ChevronRight, ArrowRight, X, Settings, User, Star } from 'lucide-react';
+import { getPopularStationsWorldwide, getStationsFromMultipleCountries, discoverServers, getCountries, getAllStations, getPopularStationsInitial, getPopularStationsPrioritized } from './services/radioBrowserService';
+import { useAudioPlayer } from './hooks/useAudioPlayer';
 import './App.css';
 
 type View = 'home' | 'countries' | 'player';
@@ -9,7 +11,6 @@ type View = 'home' | 'countries' | 'player';
 function App() {
   const [view, setView] = useState<View>('home');
   const [selectedRadio, setSelectedRadio] = useState<RadioStation | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [frequency, setFrequency] = useState(94.4);
   const [selectedBand, setSelectedBand] = useState<'FM' | 'AM'>('FM');
   const [favorites, setFavorites] = useState<RadioStation[]>([]);
@@ -19,10 +20,117 @@ function App() {
   const [selectorPosition, setSelectorPosition] = useState<{ x: number; y: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [centerLocation, setCenterLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [radioStations, setRadioStations] = useState<RadioStation[]>(RADIO_STATIONS); // Inicia com dados estáticos
+  const [isLoadingStations, setIsLoadingStations] = useState(false);
+  const [searchCountry, setSearchCountry] = useState('');
+  const [countriesFilter, setCountriesFilter] = useState<'all' | 'favorites'>('all'); // Novo: filtro de países/favoritos
   const globeContainerRef = useRef<HTMLDivElement>(null);
+  const countriesTitleRef = useRef<HTMLHeadingElement>(null);
+  const favouritesTitleRef = useRef<HTMLHeadingElement>(null);
+  const [barStyle, setBarStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+
+  // Hook de áudio
+  const audioPlayer = useAudioPlayer();
+  const { isPlaying, isLoading: isLoadingAudio, error: audioError, nowPlaying } = audioPlayer;
+
+  // Carregar TODAS as estações disponíveis da API Radio Browser
+  // Sem priorização - busca todas as estações que ainda não estão no mapa
+  useEffect(() => {
+    const loadStationsFromAPI = async () => {
+      setIsLoadingStations(true);
+      try {
+        // Primeiro, descobrir servidores disponíveis
+        await discoverServers();
+        
+        // Carregar estações populares priorizando Brasil, EUA e Europa
+        // getPopularStationsPrioritized já verifica o cache primeiro
+        const apiStations = await getPopularStationsPrioritized(20000);
+        
+        if (apiStations.length > 0) {
+          console.log(`Carregadas ${apiStations.length} estações populares da API Radio Browser`);
+          setRadioStations(prev => {
+            // Combinar com as existentes para não perder as estáticas
+            const existingIds = new Set(prev.map(r => r.id));
+            const newStations = apiStations.filter(s => !existingIds.has(s.id));
+            return [...prev, ...newStations];
+          });
+        } else {
+          console.log('Nenhuma nova estação encontrada para adicionar.');
+        }
+      } catch (error) {
+        console.error('Erro ao carregar estações da API:', error);
+        // Em caso de erro, manter as estações existentes
+      } finally {
+        setIsLoadingStations(false);
+      }
+    };
+
+    // Carregar estações da API
+    loadStationsFromAPI();
+
+    // Atualização periódica das estações (a cada 6 horas)
+    const updateInterval = setInterval(() => {
+      console.log('Atualizando estações periodicamente...');
+      loadStationsFromAPI();
+    }, 6 * 60 * 60 * 1000); // 6 horas
+
+    return () => clearInterval(updateInterval);
+  }, []);
+
+  // Favoritar 5 rádios automaticamente quando as estações forem carregadas
+  useEffect(() => {
+    if (radioStations.length > 0 && favorites.length === 0) {
+      // Selecionar 5 rádios variados (diferentes países)
+      const stationsToFavorite = radioStations
+        .filter((radio, index, self) => {
+          // Evitar duplicatas do mesmo país
+          return index === self.findIndex(r => r.country === radio.country);
+        })
+        .slice(0, 5);
+      
+      if (stationsToFavorite.length > 0) {
+        setFavorites(stationsToFavorite);
+        console.log(`Adicionadas ${stationsToFavorite.length} rádios aos favoritos automaticamente`);
+      }
+    }
+  }, [radioStations, favorites.length]);
+
+  // Atualizar posição e largura da barra baseado no título ativo
+  useEffect(() => {
+    const updateBarPosition = () => {
+      if (countriesFilter === 'all' && countriesTitleRef.current) {
+        const rect = countriesTitleRef.current.getBoundingClientRect();
+        const headerRect = countriesTitleRef.current.parentElement?.getBoundingClientRect();
+        if (headerRect) {
+          setBarStyle({
+            left: rect.left - headerRect.left,
+            width: rect.width
+          });
+        }
+      } else if (countriesFilter === 'favorites' && favouritesTitleRef.current) {
+        const rect = favouritesTitleRef.current.getBoundingClientRect();
+        const headerRect = favouritesTitleRef.current.parentElement?.getBoundingClientRect();
+        if (headerRect) {
+          setBarStyle({
+            left: rect.left - headerRect.left,
+            width: rect.width
+          });
+        }
+      }
+    };
+
+    // Pequeno delay para garantir que o DOM foi renderizado
+    const timeoutId = setTimeout(updateBarPosition, 0);
+    window.addEventListener('resize', updateBarPosition);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('resize', updateBarPosition);
+    };
+  }, [countriesFilter]);
 
   // Agrupar rádios por país
-  const radiosByCountry = RADIO_STATIONS.reduce((acc, radio) => {
+  const radiosByCountry = radioStations.reduce((acc, radio) => {
     const country = radio.country;
     if (!acc[country]) {
       acc[country] = [];
@@ -57,14 +165,42 @@ function App() {
   const frequencies = getFrequencies();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const handleRadioSelect = (radio: RadioStation) => {
-    setSelectedRadio(radio);
-    const freq = parseFloat(radio.frequency.replace(' FM', '').replace(' AM', ''));
-    setFrequency(freq);
-    setView('player');
+  // Preview: Apenas mostrar informações, não carregar stream
+  const handleRadioPreview = (radio: RadioStation) => {
+    setSelectedRadioHome(radio);
+    // Não carregar stream ainda - apenas preview visual
   };
 
-  const togglePlay = () => setIsPlaying(!isPlaying);
+  // Play: Carregar stream apenas quando usuário quer tocar
+  // Mantém o usuário na visualização do globo (home)
+  const handleRadioPlay = (radio: RadioStation) => {
+    setSelectedRadio(radio);
+    setSelectedRadioHome(radio); // Garantir que também atualiza o preview
+    const freq = parseFloat(radio.frequency.replace(' FM', '').replace(' AM', '').replace(' MHz', ''));
+    if (!isNaN(freq)) {
+      setFrequency(freq);
+    }
+    // AGORA sim carregar o stream
+    audioPlayer.setStation(radio);
+    // Não mudar de view - usuário permanece no globo
+  };
+
+  // Função legada para compatibilidade com views antigas
+  const handleRadioSelect = (radio: RadioStation) => {
+    handleRadioPlay(radio);
+  };
+
+  const togglePlay = () => {
+    const radioToPlay = selectedRadio || selectedRadioHome;
+    if (radioToPlay) {
+      // Se ainda não carregou o stream, carregar agora
+      if (radioToPlay && (!selectedRadio || selectedRadio.id !== radioToPlay.id)) {
+        handleRadioPlay(radioToPlay);
+      }
+      // Toggle play/pause
+      audioPlayer.toggle();
+    }
+  };
 
   const toggleFavorite = () => {
     if (selectedRadio) {
@@ -129,13 +265,8 @@ function App() {
           {/* Globo 3D - Aumentado e centralizado */}
           <div className="globe-container" ref={globeContainerRef}>
             <GlobeView
-              radios={RADIO_STATIONS}
-              onRadioSelect={(radio) => {
-                setSelectedRadioHome(radio);
-                setSelectedRadio(radio);
-                const freq = parseFloat(radio.frequency.replace(' FM', '').replace(' AM', ''));
-                setFrequency(freq);
-              }}
+              radios={radioStations}
+              onRadioSelect={handleRadioPreview}
               selectedRadio={selectedRadioHome}
               onSelectionPosition={(position) => {
                 if (position && globeContainerRef.current) {
@@ -214,42 +345,69 @@ function App() {
                   <X className="home-player-close-icon" />
                 </button>
               </div>
-              <div className="home-player-info">
-                <div className="home-player-station">{selectedRadioHome.name}</div>
-                <div className="home-player-location">{selectedRadioHome.city}, {selectedRadioHome.country}</div>
-                <div className="home-player-frequency">{selectedRadioHome.frequency}</div>
-              </div>
-              {isPlaying && (
-                <div className="home-player-now-playing">
-                  <div className="home-now-playing-artist">{currentSong.artist}</div>
-                  <div className="home-now-playing-title">{currentSong.title}</div>
-                </div>
-              )}
-              <div className="home-player-controls">
-                <button
-                  onClick={togglePlay}
-                  className="home-play-button"
-                >
-                  {isPlaying ? (
-                    <Pause className="home-play-icon" fill="currentColor" />
-                  ) : (
-                    <Play className="home-play-icon" fill="currentColor" />
+              <div className="home-player-content">
+                <div className="home-player-info">
+                  <div className="home-player-station">{selectedRadioHome.name}</div>
+                  <div className="home-player-location">{selectedRadioHome.city}, {selectedRadioHome.country}</div>
+                  <div className="home-player-frequency">{selectedRadioHome.frequency}</div>
+                  {isPlaying && (
+                    <div className="home-player-now-playing">
+                      <div className="home-now-playing-artist">
+                        {nowPlaying?.artist || selectedRadioHome?.name || 'Rádio'}
+                      </div>
+                      <div className="home-now-playing-title">
+                        {nowPlaying?.title || (nowPlaying?.artist ? '' : 'Agora tocando')}
+                      </div>
+                      {!nowPlaying && selectedRadioHome && (
+                        <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.25rem' }}>
+                          {selectedRadioHome.city && selectedRadioHome.country 
+                            ? `${selectedRadioHome.city}, ${selectedRadioHome.country}`
+                            : selectedRadioHome.country || selectedRadioHome.city || ''}
+                        </div>
+                      )}
+                    </div>
                   )}
-                </button>
-                <button
-                  onClick={() => {
-                    if (selectedRadioHome) {
-                      if (favorites.some(fav => fav.id === selectedRadioHome.id)) {
-                        setFavorites(favorites.filter(fav => fav.id !== selectedRadioHome.id));
-                      } else {
-                        setFavorites([...favorites, selectedRadioHome]);
+                </div>
+                <div className="home-player-controls">
+                  <button
+                    onClick={() => {
+                      if (selectedRadioHome) {
+                        // Se ainda não carregou o stream, carregar agora
+                        if (!selectedRadio || selectedRadio.id !== selectedRadioHome.id) {
+                          handleRadioPlay(selectedRadioHome);
+                          // Aguardar um pouco para o stream carregar antes de tocar
+                          setTimeout(() => {
+                            audioPlayer.play();
+                          }, 100);
+                        } else {
+                          // Já está carregado, apenas toggle
+                          togglePlay();
+                        }
                       }
-                    }
-                  }}
-                  className={`home-favorite-button ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'active' : ''}`}
-                >
-                  <Heart className={`home-favorite-icon ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'filled' : ''}`} />
-                </button>
+                    }}
+                    className="home-play-button"
+                  >
+                    {isPlaying ? (
+                      <Pause className="home-play-icon" fill="currentColor" />
+                    ) : (
+                      <Play className="home-play-icon" fill="currentColor" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedRadioHome) {
+                        if (favorites.some(fav => fav.id === selectedRadioHome.id)) {
+                          setFavorites(favorites.filter(fav => fav.id !== selectedRadioHome.id));
+                        } else {
+                          setFavorites([...favorites, selectedRadioHome]);
+                        }
+                      }
+                    }}
+                    className={`home-favorite-button ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'active' : ''}`}
+                  >
+                    <Heart className={`home-favorite-icon ${favorites.some(fav => fav.id === selectedRadioHome.id) ? 'filled' : ''}`} />
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -265,6 +423,16 @@ function App() {
               <div className="radio-text">
                 Radio<span className="text-red-500">.</span>
               </div>
+              {isLoadingStations && (
+                <div style={{ 
+                  marginTop: '16px', 
+                  fontSize: '12px', 
+                  color: '#999',
+                  textAlign: 'center' 
+                }}>
+                  Carregando estações da API...
+                </div>
+              )}
             </>
           )}
         </div>
@@ -289,7 +457,21 @@ function App() {
             </button>
             <h1 className="countries-title">Choose Country</h1>
           </div>
-          <div className="header-icons">
+          <div className="header-icons" style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', maxWidth: '300px' }}>
+            <input
+              type="text"
+              placeholder="Buscar país..."
+              value={searchCountry}
+              onChange={(e) => setSearchCountry(e.target.value)}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                fontSize: '14px',
+                minWidth: '150px',
+              }}
+            />
             <button className="icon-button">
               <Search className="icon" />
             </button>
@@ -304,22 +486,112 @@ function App() {
 
         {/* Lista de países */}
         <div className="countries-list-container">
-          <div className="countries-list">
-            {countriesWithCount.map((country) => (
-              <button
-                key={country.name}
-                onClick={() => {
-                  const radios = radiosByCountry[country.name];
-                  if (radios.length > 0) {
-                    handleRadioSelect(radios[0]);
-                  }
-                }}
-                className="country-item"
-              >
-                {country.name}
-                <sup className="country-count">({country.count})</sup>
-              </button>
-            ))}
+          {/* Títulos com Dot Matrix */}
+          <div className={`countries-filter-header ${countriesFilter === 'favorites' ? 'favourites-active' : 'countries-active'}`}>
+            <h2 
+              ref={countriesTitleRef}
+              className={`countries-dot-title ${countriesFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setCountriesFilter('all')}
+            >
+              COUNTRIES
+            </h2>
+            <h2 
+              ref={favouritesTitleRef}
+              className={`countries-dot-title countries-favourites-title ${countriesFilter === 'favorites' ? 'active' : ''}`}
+              onClick={() => setCountriesFilter('favorites')}
+            >
+              FAVOURITES
+            </h2>
+            {/* Barra deslizante com posição e largura dinâmicas */}
+            <div 
+              className="countries-bar-indicator"
+              style={{
+                left: `${barStyle.left}px`,
+                width: `${barStyle.width}px`
+              }}
+            />
+          </div>
+
+          {/* Container com animação de slide */}
+          <div className={`countries-list-wrapper ${countriesFilter === 'favorites' ? 'slide-left' : 'slide-right'}`}>
+            {/* Lista de países */}
+            <div className="countries-list countries-list-all">
+            {countriesFilter === 'all' ? (
+              // Mostrar todos os países
+              countriesWithCount
+                .filter((country) =>
+                  searchCountry
+                    ? country.name.toLowerCase().includes(searchCountry.toLowerCase())
+                    : true
+                )
+                .map((country) => (
+                  <button
+                    key={country.name}
+                    onClick={() => {
+                      const radios = radiosByCountry[country.name];
+                      if (radios.length > 0) {
+                        handleRadioSelect(radios[0]);
+                      }
+                    }}
+                    className="country-item"
+                  >
+                    {country.name}
+                    <sup className="country-count">({country.count})</sup>
+                  </button>
+                ))
+            ) : null}
+            </div>
+            
+            {/* Lista de favoritos */}
+            <div className="countries-list countries-list-favorites">
+            {countriesFilter === 'favorites' ? (
+              // Mostrar rádios favoritas agrupadas por país
+              favorites.length === 0 ? (
+                <div className="countries-empty-state">
+                  <p>Nenhuma rádio favoritada ainda</p>
+                </div>
+              ) : (
+                (() => {
+                  // Agrupar favoritos por país
+                  const favoritesByCountry: { [key: string]: RadioStation[] } = {};
+                  favorites.forEach(radio => {
+                    const country = radio.country || 'Unknown';
+                    if (!favoritesByCountry[country]) {
+                      favoritesByCountry[country] = [];
+                    }
+                    favoritesByCountry[country].push(radio);
+                  });
+
+                  const favoriteCountries = Object.keys(favoritesByCountry).map(country => ({
+                    name: country,
+                    count: favoritesByCountry[country].length
+                  })).sort((a, b) => b.count - a.count);
+
+                  return favoriteCountries
+                    .filter((country) =>
+                      searchCountry
+                        ? country.name.toLowerCase().includes(searchCountry.toLowerCase())
+                        : true
+                    )
+                    .map((country) => (
+                      <button
+                        key={country.name}
+                        onClick={() => {
+                          const radios = favoritesByCountry[country.name];
+                          if (radios.length > 0) {
+                            handleRadioSelect(radios[0]);
+                          }
+                        }}
+                        className="country-item"
+                      >
+                        {country.name}
+                        <sup className="country-count">({country.count})</sup>
+                      </button>
+                    ));
+                })()
+              )
+            ) : null}
+            </div>
           </div>
         </div>
 
@@ -327,7 +599,7 @@ function App() {
         <div className="countries-footer">
           <div className="footer-total">
             <span className="footer-label">All</span>
-            <span className="footer-number">{RADIO_STATIONS.length}</span>
+            <span className="footer-number">{radioStations.length}</span>
           </div>
         </div>
 
@@ -500,8 +772,19 @@ function App() {
       {/* Informação da música */}
       {isPlaying && (
         <div className="now-playing">
-          <div className="song-artist">{currentSong.artist}</div>
-          <div className="song-title">{currentSong.title}</div>
+          <div className="song-artist">
+            {nowPlaying?.artist || selectedRadio?.name || 'Rádio'}
+          </div>
+          <div className="song-title">
+            {nowPlaying?.title || (nowPlaying?.artist ? '' : 'Agora tocando')}
+          </div>
+          {!nowPlaying && selectedRadio && (selectedRadio.city || selectedRadio.country) && (
+            <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.25rem' }}>
+              {selectedRadio.city && selectedRadio.country 
+                ? `${selectedRadio.city}, ${selectedRadio.country}`
+                : selectedRadio.country || selectedRadio.city || ''}
+            </div>
+          )}
         </div>
       )}
 

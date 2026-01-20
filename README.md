@@ -15,7 +15,6 @@ Uma aplicação web progressiva (PWA) para ouvir rádios de todo o mundo com um 
 
 ### Desenvolvimento
 ```bash
-cd web
 npm install
 npm start
 ```
@@ -23,7 +22,6 @@ Abre em [http://localhost:3000](http://localhost:3000)
 
 ### Build de Produção
 ```bash
-cd web
 npm run build
 ```
 
@@ -32,7 +30,7 @@ npm run build
 - **React 19** - Framework principal
 - **TypeScript** - Tipagem estática
 - **Three.js + React Three Fiber** - Renderização 3D
-- **Tailwind CSS** - Estilização
+- **CSS3** - Estilização
 - **Lucide Icons** - Ícones
 - **Service Worker** - Funcionalidades offline
 - **PWA Manifest** - Instalação como app
