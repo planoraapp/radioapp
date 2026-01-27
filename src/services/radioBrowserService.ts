@@ -738,9 +738,13 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
   }
 }
 
+/** Callback opcional: recebe lista acumulada de estações a cada lote (carregamento progressivo). */
+export type OnStationsProgress = (stations: RadioStation[]) => void;
+
 /**
  * Busca estações populares priorizando Brasil, EUA e Europa
- * 60% das estações vêm de regiões priorizadas, 40% do resto do mundo
+ * 60% das estações vêm de regiões priorizadas, 40% do resto do mundo.
+ * Usa paralelismo (grupos de países) e onProgress para exibir estações aos poucos.
  */
 export async function getPopularStationsPrioritized(
   totalLimit: number = 20000,
@@ -751,11 +755,17 @@ export async function getPopularStationsPrioritized(
     'Poland', 'Sweden', 'Norway', 'Denmark', 'Belgium', // Norte da Europa: 5 países
     'Japan', 'India', 'Indonesia', 'Philippines', 'South Korea', // Ásia: 5 países
     'Turkey', 'Greece', 'Czech Republic', 'Romania', 'Hungary' // Leste Europeu: 5 países
-  ]
+  ],
+  onProgress?: OnStationsProgress
 ): Promise<RadioStation[]> {
   const CACHE_KEY = 'radio_browser_stations_prioritized_cache';
   const CACHE_TIMESTAMP_KEY = 'radio_browser_stations_prioritized_timestamp';
   const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 horas
+  const PARALLEL_COUNTRIES = 5; // Países por grupo em paralelo
+
+  const report = (stations: RadioStation[]) => {
+    if (onProgress && stations.length > 0) onProgress(stations);
+  };
 
   try {
     // Verificar cache primeiro
@@ -766,128 +776,128 @@ export async function getPopularStationsPrioritized(
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
         log('Carregando estações priorizadas do cache...');
-        return JSON.parse(cachedStations);
+        const parsed = JSON.parse(cachedStations) as RadioStation[];
+        report(parsed);
+        return parsed;
       }
     }
 
-    log(`Buscando ${totalLimit} estações priorizando regiões...`);
-    
-    // Dividir: 60% regiões priorizadas, 40% resto do mundo
+    log(`Buscando ${totalLimit} estações priorizando regiões (paralelo em grupos de ${PARALLEL_COUNTRIES})...`);
+
     const priorityLimit = Math.floor(totalLimit * 0.6);
-    const globalLimit = totalLimit - priorityLimit;
-    
     const allStations: RadioStation[] = [];
     const includedStationIds = new Set<string>();
-    
-    // Buscar por país prioritário (Brasil, EUA, Reino Unido - principais)
-    // 3 países principais recebem 30% do total (10% cada)
-    const primaryCountries = priorityCountries.slice(0, 3); // Brazil, United States, United Kingdom
-    const stationsPerPrimary = Math.floor(totalLimit * 0.1); // 10% do total para cada país principal
-    
-    for (const country of primaryCountries) {
-      try {
-        log(`Buscando estações de ${country}...`);
-        const countryStations = await getStationsByCountryName(country, stationsPerPrimary + 100); // Buscar um pouco mais para garantir quantidade
-        const workingStations = countryStations.filter(s => s.lastcheckok === 1);
-        const transformed = workingStations
-          .filter(s => !includedStationIds.has(s.stationuuid))
-          .slice(0, stationsPerPrimary)
-          .map((s, idx) => {
-            includedStationIds.add(s.stationuuid);
-            return transformToRadioStation(s, allStations.length + idx);
-          });
-        
-        allStations.push(...transformed);
-        log(`✓ ${country}: ${transformed.length} estações`);
-      } catch (e) {
-        logWarn(`Erro ao buscar estações de ${country}:`, e);
-      }
-    }
-    
-    // Buscar estações dos países prioritários restantes (Europa, Américas, Ásia)
-    const secondaryCountries = priorityCountries.slice(3);
-    const remainingPrioritySlots = priorityLimit - allStations.length;
-    // Distribuir igualmente entre todos os países secundários
-    const stationsPerCountry = Math.floor(remainingPrioritySlots / secondaryCountries.length);
-    
-    for (const country of secondaryCountries) {
-      if (allStations.length >= priorityLimit) break;
-      
-      try {
-        log(`Buscando estações de ${country}...`);
-        const countryStations = await getStationsByCountryName(country, stationsPerCountry + 100);
-        const workingStations = countryStations.filter(s => s.lastcheckok === 1);
-        const availableSlots = priorityLimit - allStations.length;
-        const stationBatch = workingStations
-          .filter(s => !includedStationIds.has(s.stationuuid))
-          .slice(0, Math.min(availableSlots, stationsPerCountry));
-        
-        // Usar transformação síncrona (geocodificação via Who's On First desabilitada devido a CORS)
-        const transformed = stationBatch.map((s, idx) => {
+
+    const stationsPerPrimary = Math.floor(totalLimit * 0.1);
+    const primaryCountries = priorityCountries.slice(0, 3);
+
+    // Fase rápida: 3 países principais em paralelo → usuário vê ~6k estações logo
+    const primaryPromises = primaryCountries.map((country) =>
+      getStationsByCountryName(country, stationsPerPrimary + 100)
+    );
+    const primaryResults = await Promise.all(primaryPromises);
+
+    for (let i = 0; i < primaryResults.length; i++) {
+      const countryStations = primaryResults[i] || [];
+      const working = countryStations.filter((s) => s.lastcheckok === 1);
+      const transformed = working
+        .filter((s) => !includedStationIds.has(s.stationuuid))
+        .slice(0, stationsPerPrimary)
+        .map((s, idx) => {
           includedStationIds.add(s.stationuuid);
           return transformToRadioStation(s, allStations.length + idx);
         });
-        
-        allStations.push(...transformed);
-        log(`✓ ${country}: ${transformed.length} estações`);
-      } catch (e) {
-        logWarn(`Erro ao buscar estações de ${country}:`, e);
-      }
+      allStations.push(...transformed);
+      log(`✓ ${primaryCountries[i]}: ${transformed.length} estações`);
     }
-    
-    // Buscar estações globais populares para completar
+    report(allStations);
+
+    // Países secundários em grupos paralelos
+    const secondaryCountries = priorityCountries.slice(3);
+    const remainingPrioritySlots = Math.max(0, priorityLimit - allStations.length);
+    const stationsPerCountry = secondaryCountries.length
+      ? Math.floor(remainingPrioritySlots / secondaryCountries.length)
+      : 0;
+
+    for (let g = 0; g < secondaryCountries.length; g += PARALLEL_COUNTRIES) {
+      if (allStations.length >= priorityLimit) break;
+      const chunk = secondaryCountries.slice(g, g + PARALLEL_COUNTRIES);
+      const chunkPromises = chunk.map((country) =>
+        getStationsByCountryName(country, stationsPerCountry + 100)
+      );
+      const chunkResults = await Promise.all(chunkPromises);
+
+      for (let i = 0; i < chunkResults.length; i++) {
+        if (allStations.length >= priorityLimit) break;
+        const countryStations = chunkResults[i] || [];
+        const working = countryStations.filter((s) => s.lastcheckok === 1);
+        const availableSlots = priorityLimit - allStations.length;
+        const batch = working
+          .filter((s) => !includedStationIds.has(s.stationuuid))
+          .slice(0, Math.min(availableSlots, stationsPerCountry));
+        const transformed = batch.map((s, idx) => {
+          includedStationIds.add(s.stationuuid);
+          return transformToRadioStation(s, allStations.length + idx);
+        });
+        allStations.push(...transformed);
+        log(`✓ ${chunk[i]}: ${transformed.length} estações`);
+      }
+      report(allStations);
+    }
+
+    // Completar com estações globais populares
     const remaining = totalLimit - allStations.length;
     if (remaining > 0) {
       try {
         log(`Buscando ${remaining} estações globais populares...`);
-        // Buscar mais estações globais para garantir que tenhamos variedade
         const globalStations = await apiRequest<RadioBrowserStation[]>(
           `/json/stations/search?hidebroken=true&limit=${remaining + 500}&order=votes&reverse=true`
         );
-        const workingStations = globalStations.filter(s => s.lastcheckok === 1);
-        const stationBatch = workingStations
-          .filter(s => !includedStationIds.has(s.stationuuid))
+        const working = globalStations.filter((s) => s.lastcheckok === 1);
+        const batch = working
+          .filter((s) => !includedStationIds.has(s.stationuuid))
           .slice(0, remaining);
-        
-        // Usar transformação síncrona (geocodificação via Who's On First desabilitada devido a CORS)
-        const transformed = stationBatch.map((s, idx) => {
+        const transformed = batch.map((s, idx) => {
           includedStationIds.add(s.stationuuid);
           return transformToRadioStation(s, allStations.length + idx);
         });
-        
         allStations.push(...transformed);
         log(`✓ Global: ${transformed.length} estações`);
       } catch (e) {
         logWarn('Erro ao buscar estações globais:', e);
       }
+      report(allStations);
     }
 
-    // Validar e remover duplicatas
-    const validStations = allStations.filter(radio => 
-      !isNaN(radio.latitude) && 
-      !isNaN(radio.longitude) &&
-      radio.latitude >= -90 && radio.latitude <= 90 &&
-      radio.longitude >= -180 && radio.longitude <= 180
+    const validStations = allStations.filter(
+      (radio) =>
+        !isNaN(radio.latitude) &&
+        !isNaN(radio.longitude) &&
+        radio.latitude >= -90 &&
+        radio.latitude <= 90 &&
+        radio.longitude >= -180 &&
+        radio.longitude <= 180
     );
 
-    const uniqueStations = validStations.filter((station, index, self) => 
-      index === self.findIndex(s => s.id === station.id)
+    const uniqueStations = validStations.filter(
+      (station, index, self) => index === self.findIndex((s) => s.id === station.id)
     );
 
     log(`Total de ${uniqueStations.length} estações priorizadas processadas`);
 
-    // Salvar no cache
     localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
     localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
 
+    report(uniqueStations);
     return uniqueStations;
   } catch (error) {
     logError('Erro ao buscar estações priorizadas:', error);
-    // Tentar carregar do cache mesmo se expirado
     const cachedStations = localStorage.getItem(CACHE_KEY);
     if (cachedStations) {
       log('Usando cache expirado como fallback...');
-      return JSON.parse(cachedStations);
+      const parsed = JSON.parse(cachedStations) as RadioStation[];
+      report(parsed);
+      return parsed;
     }
     return [];
   }

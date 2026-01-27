@@ -443,6 +443,24 @@ button:focus-visible {
   height: 28px;
 }
 
+/* Mensagem "Preparando estação…" abaixo da linha da frequência */
+.home-preparing-message {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* Loading interno do botão de play (spinner no lugar do ícone) */
+.home-play-loading {
+  animation: home-play-loading-spin 1s linear infinite;
+}
+
+@keyframes home-play-loading-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .home-favorite-button {
   width: 48px;
   height: 48px;
@@ -1272,6 +1290,26 @@ button:focus-visible {
 .play-icon {
   width: 40px;
   height: 40px;
+}
+
+/* Mensagem "Preparando estação…" no player completo (acima dos controles) */
+.player-preparing-message {
+  font-size: 0.8rem;
+  color: #6b7280;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-align: center;
+  padding: 8px 0;
+}
+
+/* Loading interno do botão de play no player completo */
+.play-icon-loading {
+  animation: play-icon-loading-spin 1s linear infinite;
+}
+
+@keyframes play-icon-loading-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Responsive */

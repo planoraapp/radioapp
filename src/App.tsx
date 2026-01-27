@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import GlobeView from './components/GlobeView';
 import { RADIO_STATIONS, RadioStation } from './data/radios';
-import { Play, Pause, SkipForward, SkipBack, Menu, Search, ArrowLeft, Heart, Share2, ChevronRight, ArrowRight, X, Settings, User, Star } from 'lucide-react';
-import { getPopularStationsWorldwide, getStationsFromMultipleCountries, discoverServers, getCountries, getAllStations, getPopularStationsInitial, getPopularStationsPrioritized, getAllAvailableStations } from './services/radioBrowserService';
+import { Play, Pause, SkipForward, SkipBack, Menu, Search, ArrowLeft, Heart, Share2, ChevronRight, ArrowRight, X, Settings, User, Star, Loader2 } from 'lucide-react';
+import { getPopularStationsWorldwide, getStationsFromMultipleCountries, discoverServers, getCountries, getAllStations, getPopularStationsInitial, getPopularStationsPrioritized } from './services/radioBrowserService';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 import './App.css';
 
@@ -54,47 +54,34 @@ function App() {
     // Carregar do cache imediatamente para exibição rápida
     const loadFromCache = () => {
       try {
-        const CACHE_KEY = 'radio_browser_all_stations_cache';
-        const CACHE_TIMESTAMP_KEY = 'radio_browser_all_stations_timestamp';
         const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 horas
-        
-        // Limpar cache antigo da função prioritizada se existir
-        const oldCacheKey = 'radio_browser_stations_prioritized_cache';
-        const oldTimestampKey = 'radio_browser_stations_prioritized_timestamp';
-        if (localStorage.getItem(oldCacheKey)) {
-          log('[App] Limpando cache antigo (prioritized)...');
-          localStorage.removeItem(oldCacheKey);
-          localStorage.removeItem(oldTimestampKey);
-        }
-        
-        const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
-        const cachedStations = localStorage.getItem(CACHE_KEY);
-        
-        if (cachedTimestamp && cachedStations) {
+        const MIN_STATIONS_VALID = 100;
+
+        // Preferir cache prioritizado (16k+ estações), depois cache "all"
+        const candidates: { key: string; tsKey: string }[] = [
+          { key: 'radio_browser_stations_prioritized_cache', tsKey: 'radio_browser_stations_prioritized_timestamp' },
+          { key: 'radio_browser_all_stations_cache', tsKey: 'radio_browser_all_stations_timestamp' },
+        ];
+
+        for (const { key: CACHE_KEY, tsKey: CACHE_TIMESTAMP_KEY } of candidates) {
+          const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+          const cachedStations = localStorage.getItem(CACHE_KEY);
+          if (!cachedTimestamp || !cachedStations) continue;
+
           const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
+          if (cacheAge >= CACHE_DURATION) continue;
+
           const stations = JSON.parse(cachedStations);
-          
-          // Validar que o cache tem um número razoável de estações
-          if (stations.length < 100) {
-            log(`[App] Cache tem apenas ${stations.length} estações - considerando inválido`);
-            localStorage.removeItem(CACHE_KEY);
-            localStorage.removeItem(CACHE_TIMESTAMP_KEY);
-            return false;
-          }
-          
-          if (cacheAge < CACHE_DURATION) {
-            log(`[App] Carregadas ${stations.length} estações do cache (carregamento rápido)`);
-            setRadioStations(stations);
-            log(`[App] Estado atualizado do cache com ${stations.length} estações`);
-            return true; // Cache encontrado e válido
-          } else {
-            log(`[App] Cache expirado (idade: ${Math.round(cacheAge / 1000 / 60)} minutos)`);
-          }
+          if (stations.length < MIN_STATIONS_VALID) continue;
+
+          log(`[App] Carregadas ${stations.length} estações do cache (carregamento rápido)`);
+          setRadioStations(stations);
+          return true;
         }
       } catch (error) {
         logError('[App] Erro ao carregar do cache:', error);
       }
-      return false; // Cache não encontrado ou inválido
+      return false;
     };
 
     const loadStationsFromAPI = async () => {
@@ -103,59 +90,41 @@ function App() {
       setIsLoadingStations(true);
       try {
         await discoverServers();
-        
-        // Carregar TODAS as estações disponíveis da API
-        // getAllAvailableStations busca todas as estações funcionais sem priorização
-        log('[App] Iniciando busca de todas as estações da API...');
-        
-        // Callback para atualizar progresso conforme estações são processadas
-        const onProgress = (stations: RadioStation[], totalProcessed: number) => {
-          log(`[App] Progresso: ${stations.length} estações processadas (${totalProcessed} total)`);
-          // Atualizar estado progressivamente para mostrar estações no globo
+
+        // Carregamento progressivo: globo atualiza a cada lote; loading some após primeira leva
+        const onProgress = (stations: RadioStation[]) => {
           setRadioStations([...stations]);
+          if (stations.length >= 500 && loadingApiRef.current) {
+            setIsLoadingStations(false); // Primeira leva visível → tirar loading
+          }
         };
-        
-        const apiStations = await getAllAvailableStations(undefined, onProgress);
-        
+
+        log('[App] Iniciando busca de estações priorizadas (até 20k, em paralelo)...');
+        const apiStations = await getPopularStationsPrioritized(20000, undefined, onProgress);
+
         log(`[App] API retornou ${apiStations.length} estações`);
-        
         if (apiStations.length > 0) {
-          log(`[App] Carregadas ${apiStations.length} estações da API Radio Browser`);
-          setRadioStations(apiStations); // Atualizar com todas as estações finais
-          log(`[App] Estado atualizado com ${apiStations.length} estações`);
+          setRadioStations(apiStations);
         } else {
           log('[App] AVISO: Nenhuma estação retornada da API!');
-          log(`[App] Mantendo ${radioStations.length} estações existentes`);
         }
       } catch (error) {
         logError('[App] Erro ao carregar estações da API:', error);
-        // Em caso de erro, tentar manter as estações do cache se já foram carregadas
       } finally {
         setIsLoadingStations(false);
         loadingApiRef.current = false;
       }
     };
 
-    // Limpar TODOS os caches antigos para forçar uso da nova função
+    // Caches usados: prioritizado (16k+) e all; não limpar o prioritizado
     try {
       const oldCacheKeys = [
-        'radio_browser_stations_prioritized_cache',
-        'radio_browser_stations_prioritized_timestamp',
         'radio_browser_stations_cache',
         'radio_browser_stations_timestamp'
       ];
-      
-      let clearedAny = false;
       oldCacheKeys.forEach(key => {
-        if (localStorage.getItem(key)) {
-          localStorage.removeItem(key);
-          clearedAny = true;
-        }
+        if (localStorage.getItem(key)) localStorage.removeItem(key);
       });
-      
-      if (clearedAny) {
-        log('[App] Limpando todos os caches antigos para forçar uso de getAllAvailableStations...');
-      }
     } catch (e) {
       logError('[App] Erro ao limpar cache antigo:', e);
     }
@@ -428,44 +397,49 @@ function App() {
                   <div className="home-player-station">{selectedRadioHome.name}</div>
                   <div className="home-player-location">{selectedRadioHome.city}, {selectedRadioHome.country}</div>
                   <div className="home-player-frequency">{selectedRadioHome.frequency}</div>
-                  {isPlaying && (
-                    <div className="home-player-now-playing">
+                  {isLoadingAudio && (
+                    <div className="home-preparing-message" aria-live="polite">
+                      Preparando estação…
+                    </div>
+                  )}
+                  {isPlaying && selectedRadio && !isLoadingAudio && (
+                    <div className="home-player-now-playing" aria-label="Em reprodução">
                       <div className="home-now-playing-artist">
-                        {nowPlaying?.artist || selectedRadioHome?.name || 'Rádio'}
+                        {nowPlaying?.artist || selectedRadio.name || 'Rádio'}
                       </div>
                       <div className="home-now-playing-title">
                         {nowPlaying?.title || (nowPlaying?.artist ? '' : 'Agora tocando')}
                       </div>
-                      {!nowPlaying && selectedRadioHome && (
-                        <div style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.25rem' }}>
-                          {selectedRadioHome.city && selectedRadioHome.country 
-                            ? `${selectedRadioHome.city}, ${selectedRadioHome.country}`
-                            : selectedRadioHome.country || selectedRadioHome.city || ''}
-                        </div>
-                      )}
+                      <div className="home-now-playing-station" style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.25rem' }}>
+                        {selectedRadio.city && selectedRadio.country
+                          ? `${selectedRadio.city}, ${selectedRadio.country}`
+                          : selectedRadio.country || selectedRadio.city || ''}
+                      </div>
                     </div>
                   )}
                 </div>
                 <div className="home-player-controls">
                   <button
                     onClick={() => {
-                      if (selectedRadioHome) {
-                        // Se ainda não carregou o stream, carregar agora
+                      if (selectedRadioHome && !isLoadingAudio) {
                         if (!selectedRadio || selectedRadio.id !== selectedRadioHome.id) {
                           handleRadioPlay(selectedRadioHome);
-                          // Aguardar um pouco para o stream carregar antes de tocar
                           setTimeout(() => {
                             audioPlayer.play();
                           }, 100);
                         } else {
-                          // Já está carregado, apenas toggle
                           togglePlay();
                         }
                       }
                     }}
                     className="home-play-button"
+                    aria-label={isLoadingAudio ? 'Preparando' : isPlaying ? 'Pausar' : 'Reproduzir'}
+                    aria-busy={isLoadingAudio}
+                    disabled={isLoadingAudio}
                   >
-                    {isPlaying ? (
+                    {isLoadingAudio ? (
+                      <Loader2 className="home-play-icon home-play-loading" size={28} aria-hidden />
+                    ) : isPlaying ? (
                       <Pause className="home-play-icon" fill="currentColor" />
                     ) : (
                       <Play className="home-play-icon" fill="currentColor" />
@@ -985,7 +959,7 @@ function App() {
       </div>
 
       {/* Informação da música */}
-      {isPlaying && (
+      {isPlaying && !isLoadingAudio && (
         <div className="now-playing">
           <div className="song-artist">
             {nowPlaying?.artist || selectedRadio?.name || 'Rádio'}
@@ -1002,6 +976,11 @@ function App() {
           )}
         </div>
       )}
+      {isLoadingAudio && (
+        <div className="player-preparing-message" aria-live="polite">
+          Preparando estação…
+        </div>
+      )}
 
       {/* Controles */}
       <div className="player-controls">
@@ -1010,10 +989,15 @@ function App() {
         </button>
 
         <button
-          onClick={togglePlay}
+          onClick={() => !isLoadingAudio && togglePlay()}
           className="play-button"
+          aria-label={isLoadingAudio ? 'Preparando' : isPlaying ? 'Pausar' : 'Reproduzir'}
+          aria-busy={isLoadingAudio}
+          disabled={isLoadingAudio}
         >
-          {isPlaying ? (
+          {isLoadingAudio ? (
+            <Loader2 className="play-icon play-icon-loading" size={40} aria-hidden />
+          ) : isPlaying ? (
             <Pause className="play-icon" fill="currentColor" />
           ) : (
             <Play className="play-icon" fill="currentColor" />
