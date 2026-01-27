@@ -53,74 +53,23 @@ interface RadioBrowserStation {
   has_extended_info?: boolean;
 }
 
-// Cache de servidores disponíveis
-let availableServers: string[] = [];
-let selectedServer: string = 'https://de1.api.radio-browser.info'; // Servidor padrão
+// Um único servidor oficial (menos dependências, menos falhas de DNS).
+// de1 é o principal e geralmente o mais estável: https://api.radio-browser.info/
+const RADIO_BROWSER_BASE = 'https://de1.api.radio-browser.info';
+let availableServers: string[] = [RADIO_BROWSER_BASE];
 
 /**
- * Descobre servidores disponíveis da API Radio Browser
- * Usa lista de servidores conhecidos e os randomiza
+ * Retorna o servidor em uso. Uso de uma só API reduz falhas de DNS e latência.
  */
 export async function discoverServers(): Promise<string[]> {
-  // Lista de servidores conhecidos da API Radio Browser
-  // Baseado na documentação: https://api.radio-browser.info/
-  const knownServers = [
-    'https://de1.api.radio-browser.info',
-    'https://de2.api.radio-browser.info',
-    'https://at1.api.radio-browser.info',
-    'https://nl1.api.radio-browser.info',
-    'https://fi1.api.radio-browser.info',
-  ];
-
-  // Se já temos servidores descobertos, retornar
-  if (availableServers.length > 0) {
-    return availableServers;
+  if (availableServers.length === 0) {
+    availableServers = [RADIO_BROWSER_BASE];
   }
-
-  // Testar servidores para ver quais estão disponíveis
-  const testedServers: string[] = [];
-  
-  for (const server of knownServers) {
-    try {
-      // Criar timeout manual para compatibilidade
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
-      const response = await fetch(`${server}/json/stats`, {
-        headers: {
-          'User-Agent': 'RadioGlobe/1.0 (https://radio-globe.app)',
-        },
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        testedServers.push(server);
-      }
-    } catch (error) {
-      // Servidor não disponível, continuar
-      console.debug(`Servidor ${server} não disponível`);
-    }
-  }
-
-  // Se encontrou servidores disponíveis, usar eles
-  if (testedServers.length > 0) {
-    availableServers = testedServers;
-    shuffleArray(availableServers);
-    selectedServer = availableServers[0];
-    return availableServers;
-  }
-
-  // Fallback: usar todos os servidores conhecidos mesmo sem teste
-  availableServers = knownServers;
-  shuffleArray(availableServers);
-  selectedServer = availableServers[0];
   return availableServers;
 }
 
 /**
- * Faz uma requisição à API Radio Browser com retry automático
+ * Requisição à API Radio Browser (um único servidor, retry no mesmo host).
  */
 async function apiRequest<T>(
   endpoint: string,
@@ -129,40 +78,24 @@ async function apiRequest<T>(
   if (availableServers.length === 0) {
     await discoverServers();
   }
-
-  const servers = [...availableServers];
-  shuffleArray(servers);
+  const server = availableServers[0];
 
   for (let attempt = 0; attempt < retries; attempt++) {
-    for (let i = 0; i < servers.length; i++) {
-      const server = servers[i];
-      try {
-        const response = await fetch(`${server}${endpoint}`, {
-          headers: {
-            'User-Agent': 'RadioGlobe/1.0 (https://radio-globe.app)',
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          // Marcar estação como popular (segundo a documentação)
-          if (endpoint.includes('/url/')) {
-            // Não fazer nada, apenas log
-          }
-          return data as T;
-        }
-      } catch (error) {
-        logWarn(`Erro ao conectar com ${server}:`, error);
-        continue; // Tenta próximo servidor
+    try {
+      const response = await fetch(`${server}${endpoint}`, {
+        headers: { 'User-Agent': 'RadioGlobe/1.0 (https://radio-globe.app)' },
+      });
+      if (response.ok) {
+        return (await response.json()) as T;
       }
+    } catch (error) {
+      logWarn(`Erro ao conectar com ${server}:`, error);
     }
-    // Se todos os servidores falharam, espera um pouco antes de tentar novamente
     if (attempt < retries - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
   }
-
-  throw new Error('Todos os servidores falharam');
+  throw new Error('Falha ao conectar à API Radio Browser');
 }
 
 /**
@@ -812,7 +745,7 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
 export async function getPopularStationsPrioritized(
   totalLimit: number = 20000,
   priorityCountries: string[] = [
-    'Brazil', 'United States', 'United Kingdom', // Principais: 3 países
+    'Brazil', 'United States of America', 'United Kingdom', // Nomes exatos da API Radio Browser
     'Germany', 'France', 'Spain', 'Italy', 'Netherlands', 'Portugal', // Europa: 6 países
     'Canada', 'Australia', 'Mexico', 'Argentina', 'Colombia', // Américas: 5 países
     'Poland', 'Sweden', 'Norway', 'Denmark', 'Belgium', // Norte da Europa: 5 países

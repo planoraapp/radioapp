@@ -42,6 +42,7 @@ function App() {
   const countriesTitleRef = useRef<HTMLHeadingElement>(null);
   const favouritesTitleRef = useRef<HTMLHeadingElement>(null);
   const [barStyle, setBarStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
+  const loadingApiRef = useRef(false); // Evita dupla chamada (ex.: React Strict Mode)
 
   // Hook de áudio
   const audioPlayer = useAudioPlayer();
@@ -97,9 +98,10 @@ function App() {
     };
 
     const loadStationsFromAPI = async () => {
+      if (loadingApiRef.current) return;
+      loadingApiRef.current = true;
       setIsLoadingStations(true);
       try {
-        // Primeiro, descobrir servidores disponíveis
         await discoverServers();
         
         // Carregar TODAS as estações disponíveis da API
@@ -130,6 +132,7 @@ function App() {
         // Em caso de erro, tentar manter as estações do cache se já foram carregadas
       } finally {
         setIsLoadingStations(false);
+        loadingApiRef.current = false;
       }
     };
 
@@ -270,10 +273,9 @@ function App() {
   const frequencies = getFrequencies();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Preview: Apenas mostrar informações, não carregar stream
-  const handleRadioPreview = (radio: RadioStation) => {
-    setSelectedRadioHome(radio);
-    // Não carregar stream ainda - apenas preview visual
+  // Preview: mostra a estação quando o círculo está próximo; limpa quando o usuário afasta
+  const handleRadioPreview = (radio: RadioStation | null) => {
+    setSelectedRadioHome(radio ?? null);
   };
 
   // Play: Carregar stream apenas quando usuário quer tocar
@@ -374,42 +376,13 @@ function App() {
               onRadioSelect={handleRadioPreview}
               selectedRadio={selectedRadioHome}
               onSelectionPosition={(position) => {
-                if (position && globeContainerRef.current) {
-                  const containerRect = globeContainerRef.current.getBoundingClientRect();
-                  const topSectionRect = globeContainerRef.current.closest('.home-top-section')?.getBoundingClientRect();
-                  if (topSectionRect) {
-                    // Converter posição do canvas para posição relativa ao home-top-section
-                    const relativeX = position.x + (containerRect.left - topSectionRect.left);
-                    const relativeY = position.y + (containerRect.top - topSectionRect.top);
-                    setSelectorPosition({ x: relativeX, y: relativeY });
-                  } else {
-                    setSelectorPosition(position);
-                  }
-                } else {
-                  setSelectorPosition(null);
-                }
+                setSelectorPosition(position);
               }}
               centerLocation={centerLocation}
             />
+            {/* Círculo seletor sempre visível no centro; quando o usuário traz uma estação para perto dele, o globo desloca-se suavemente para fixá-la */}
+            <div className="radio-selector-circle radio-selector-circle--fixed" aria-hidden />
           </div>
-
-          {/* Círculo vermelho - Seletor de rádio (se move para o pin quando selecionado) */}
-          <div 
-            className="radio-selector-circle"
-            style={
-              selectorPosition
-                ? {
-                    left: `${selectorPosition.x}px`,
-                    top: `${selectorPosition.y}px`,
-                    transform: 'translate(-50%, -50%)',
-                  }
-                : {
-                    left: '50%',
-                    top: '50%',
-                    transform: 'translate(-50%, -50%)',
-                  }
-            }
-          ></div>
 
           {/* Ruler divider na parte inferior */}
           <div className="ruler-divider">

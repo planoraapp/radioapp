@@ -78,7 +78,7 @@ button:focus-visible {
   overflow: hidden;
 }
 
-/* Globo aumentado - ocupa toda a seção home-top-section */
+/* Globo aumentado - ocupa toda a seção home-top-section; contém o seletor fixo no centro */
 .globe-container {
   position: absolute;
   top: 0;
@@ -101,6 +101,14 @@ button:focus-visible {
   pointer-events: none;
   animation: pulse 2s ease-in-out infinite;
   transition: left 0.3s ease-out, top 0.3s ease-out;
+}
+
+/* Seletor fixo no centro: não se move; o globo rotaciona para alinhar a estação ao centro */
+.radio-selector-circle--fixed {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: none;
 }
 
 @keyframes pulse {
