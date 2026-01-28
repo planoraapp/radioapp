@@ -88,15 +88,15 @@ button:focus-visible {
   z-index: 10;
 }
 
-/* Círculo vermelho central - Seletor de rádio */
+/* Anel vermelho central - Seletor de rádio (interior transparente) */
 .radio-selector-circle {
   position: absolute;
-  width: 12px;
-  height: 12px;
+  width: 29px;
+  height: 29px;
   border-radius: 50%;
-  background: #ef4444;
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 0 2px #ef4444, 0 0 8px rgba(239, 68, 68, 0.4);
+  background: transparent;
+  border: 3px solid #ef4444;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.15);
   z-index: 15;
   pointer-events: none;
   animation: pulse 2s ease-in-out infinite;
@@ -109,6 +109,11 @@ button:focus-visible {
   top: 50%;
   transform: translate(-50%, -50%);
   transition: none;
+}
+
+/* Seletor arrastável: permite pointer-events para iniciar arrasto pelo círculo */
+.radio-selector-circle--draggable {
+  pointer-events: auto;
 }
 
 @keyframes pulse {
@@ -205,9 +210,10 @@ button:focus-visible {
 }
 
 .location-center-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 4px;
   display: block;
 }
 
@@ -345,6 +351,15 @@ button:focus-visible {
   padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   max-width: 100%;
+}
+
+.home-player-now-playing--error .home-now-playing-artist {
+  color: #f87171;
+}
+
+.home-player-now-playing--error .home-now-playing-title {
+  color: #fca5a5;
+  font-weight: 500;
 }
 
 .home-now-playing-artist {

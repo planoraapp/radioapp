@@ -223,7 +223,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
         audioRef.current.pause();
       }
 
-      if (station && station.url) {
+      if (station && typeof station.url === 'string' && station.url.trim() !== '') {
         // Atualizar URL do áudio
         audioRef.current.src = station.url;
         audioRef.current.load(); // Recarregar o elemento
@@ -234,6 +234,11 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
         audioRef.current.load();
         setCurrentStation(null);
         setIsPlaying(false);
+        if (station) {
+          setError('Estação sem URL de stream');
+        } else {
+          setError(null);
+        }
       }
     }
   };

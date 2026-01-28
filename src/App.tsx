@@ -38,11 +38,16 @@ function App() {
   const [searchCountry, setSearchCountry] = useState('');
   const [countriesFilter, setCountriesFilter] = useState<'all' | 'favorites'>('all'); // Novo: filtro de países/favoritos
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null); // País selecionado para ver rádios
+  const [selectorOffsetPx, setSelectorOffsetPx] = useState({ x: 0, y: 0 }); // Centro do seletor = referência; usuário arrasta o círculo
+  const [commitSelectionRequested, setCommitSelectionRequested] = useState(false); // true quando usuário "solta" o círculo
+  const [isDraggingSelector, setIsDraggingSelector] = useState(false);
+  const selectorDragRef = useRef({ active: false, startX: 0, startY: 0, startOffsetX: 0, startOffsetY: 0 });
   const globeContainerRef = useRef<HTMLDivElement>(null);
   const countriesTitleRef = useRef<HTMLHeadingElement>(null);
   const favouritesTitleRef = useRef<HTMLHeadingElement>(null);
   const [barStyle, setBarStyle] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
   const loadingApiRef = useRef(false); // Evita dupla chamada (ex.: React Strict Mode)
+  const progressThrottleRef = useRef({ lastTime: 0, lastCount: 0 }); // Throttle do onProgress para não travar a UI
 
   // Hook de áudio
   const audioPlayer = useAudioPlayer();
@@ -88,19 +93,33 @@ function App() {
       if (loadingApiRef.current) return;
       loadingApiRef.current = true;
       setIsLoadingStations(true);
+      progressThrottleRef.current = { lastTime: 0, lastCount: 0 }; // Reset para cada nova carga
       try {
         await discoverServers();
 
-        // Carregamento progressivo: globo atualiza a cada lote; loading some após primeira leva
+        // Throttle: atualiza no máximo a cada 450ms ou quando +1500 estações; evita dezenas de re-renders pesados
+        const PROGRESS_THROTTLE_MS = 450;
+        const PROGRESS_MIN_DELTA = 1500;
         const onProgress = (stations: RadioStation[]) => {
-          setRadioStations([...stations]);
-          if (stations.length >= 500 && loadingApiRef.current) {
+          const count = stations.length;
+          const now = Date.now();
+          const { lastTime, lastCount } = progressThrottleRef.current;
+          const shouldUpdate =
+            count - lastCount >= PROGRESS_MIN_DELTA ||
+            now - lastTime >= PROGRESS_THROTTLE_MS ||
+            lastCount === 0;
+          if (shouldUpdate) {
+            progressThrottleRef.current.lastTime = now;
+            progressThrottleRef.current.lastCount = count;
+            setRadioStations([...stations]);
+          }
+          if (count >= 500 && loadingApiRef.current) {
             setIsLoadingStations(false); // Primeira leva visível → tirar loading
           }
         };
 
-        log('[App] Iniciando busca de estações priorizadas (até 20k, em paralelo)...');
-        const apiStations = await getPopularStationsPrioritized(20000, undefined, onProgress);
+        log('[App] Iniciando busca de estações priorizadas (até 40k, em paralelo)...');
+        const apiStations = await getPopularStationsPrioritized(40000, undefined, onProgress);
 
         log(`[App] API retornou ${apiStations.length} estações`);
         if (apiStations.length > 0) {
@@ -152,6 +171,41 @@ function App() {
     }, 6 * 60 * 60 * 1000); // 6 horas
 
     return () => clearInterval(updateInterval);
+  }, []);
+
+  // Arrastar o seletor: pointermove/pointerup na janela
+  useEffect(() => {
+    const onPointerMove = (e: PointerEvent) => {
+      if (!selectorDragRef.current.active) return;
+      const rect = globeContainerRef.current?.getBoundingClientRect();
+      const { startX, startY, startOffsetX, startOffsetY } = selectorDragRef.current;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      let nx = startOffsetX + dx;
+      let ny = startOffsetY + dy;
+      if (rect) {
+        const margin = 20;
+        const maxX = Math.max(0, rect.width / 2 - margin);
+        const maxY = Math.max(0, rect.height / 2 - margin);
+        nx = Math.max(-maxX, Math.min(maxX, nx));
+        ny = Math.max(-maxY, Math.min(maxY, ny));
+      }
+      setSelectorOffsetPx({ x: nx, y: ny });
+    };
+    const onPointerUpOrCancel = () => {
+      if (!selectorDragRef.current.active) return;
+      selectorDragRef.current.active = false;
+      setIsDraggingSelector(false);
+      setCommitSelectionRequested(true);
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerup', onPointerUpOrCancel);
+    window.addEventListener('pointercancel', onPointerUpOrCancel);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUpOrCancel);
+      window.removeEventListener('pointercancel', onPointerUpOrCancel);
+    };
   }, []);
 
   // Favoritar 5 rádios automaticamente quando as estações forem carregadas
@@ -301,23 +355,42 @@ function App() {
     }
   }, [frequency, selectedBand, frequencies]);
 
-  // Função para obter localização do usuário e centralizar no globo
+  // Função para obter localização do usuário e centralizar no globo (ao clicar na torre)
   const handleCenterOnLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada por este navegador.');
+      return;
+    }
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    };
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        if (typeof latitude === 'number' && typeof longitude === 'number' && !isNaN(latitude) && !isNaN(longitude)) {
           setUserLocation({ latitude, longitude });
           setCenterLocation({ latitude, longitude });
-        },
-        (error) => {
-          logError('Erro ao obter localização:', error);
-          alert('Não foi possível obter sua localização. Verifique as permissões do navegador.');
+        } else {
+          logError('Coordenadas inválidas retornadas:', position.coords);
+          alert('Não foi possível obter coordenadas válidas.');
         }
-      );
-    } else {
-      alert('Geolocalização não é suportada por este navegador.');
-    }
+      },
+      (error) => {
+        logError('Erro ao obter localização:', error);
+        const msg =
+          error.code === error.PERMISSION_DENIED
+            ? 'Permissão de localização negada. Habilite no navegador ou nas configurações do dispositivo.'
+            : error.code === error.POSITION_UNAVAILABLE
+            ? 'Posição indisponível no momento. Tente novamente.'
+            : error.code === error.TIMEOUT
+            ? 'Tempo esgotado ao buscar localização. Verifique GPS/rede e tente de novo.'
+            : 'Não foi possível obter sua localização. Verifique as permissões do navegador.';
+        alert(msg);
+      },
+      options
+    );
   };
 
   // ============================================
@@ -348,9 +421,31 @@ function App() {
                 setSelectorPosition(position);
               }}
               centerLocation={centerLocation}
+              selectorOffsetPx={selectorOffsetPx}
+              commitSelectionRequested={commitSelectionRequested}
+              onSelectionCommitProcessed={() => setCommitSelectionRequested(false)}
             />
-            {/* Círculo seletor sempre visível no centro; quando o usuário traz uma estação para perto dele, o globo desloca-se suavemente para fixá-la */}
-            <div className="radio-selector-circle radio-selector-circle--fixed" aria-hidden />
+            {/* Círculo seletor arrastável: centro = referência; ao soltar, seleciona a rádio mais próxima do centro */}
+            <div
+              className="radio-selector-circle radio-selector-circle--fixed radio-selector-circle--draggable"
+              style={{
+                transform: `translate(calc(-50% + ${selectorOffsetPx.x}px), calc(-50% + ${selectorOffsetPx.y}px))`,
+                cursor: isDraggingSelector ? 'grabbing' : 'grab',
+              }}
+              aria-hidden
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                selectorDragRef.current = {
+                  active: true,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  startOffsetX: selectorOffsetPx.x,
+                  startOffsetY: selectorOffsetPx.y,
+                };
+                setIsDraggingSelector(true);
+              }}
+            />
           </div>
 
           {/* Ruler divider na parte inferior */}
@@ -368,8 +463,8 @@ function App() {
             aria-label="Centralizar no globo na minha localização"
           >
             <img 
-              src="/radio-antenna.svg" 
-              alt="Antena de rádio" 
+              src="/iconapp.png" 
+              alt="Centralizar na minha localização" 
               className="location-center-icon"
             />
           </button>
@@ -402,7 +497,19 @@ function App() {
                       Preparando estação…
                     </div>
                   )}
-                  {isPlaying && selectedRadio && !isLoadingAudio && (
+                  {(audioError || (selectedRadioHome && (!selectedRadioHome.url || String(selectedRadioHome.url || '').trim() === ''))) ? (
+                    <div className="home-player-now-playing home-player-now-playing--error" aria-label="Erro na estação">
+                      <div className="home-now-playing-artist">Erro na estação</div>
+                      <div className="home-now-playing-title" style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                        {audioError || 'Estação sem URL de stream'}
+                      </div>
+                      <div className="home-now-playing-station" style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.25rem' }}>
+                        {selectedRadioHome?.city && selectedRadioHome?.country
+                          ? `${selectedRadioHome.city}, ${selectedRadioHome.country}`
+                          : selectedRadioHome?.country || selectedRadioHome?.city || ''}
+                      </div>
+                    </div>
+                  ) : isPlaying && selectedRadio && !isLoadingAudio ? (
                     <div className="home-player-now-playing" aria-label="Em reprodução">
                       <div className="home-now-playing-artist">
                         {nowPlaying?.artist || selectedRadio.name || 'Rádio'}
@@ -416,7 +523,7 @@ function App() {
                           : selectedRadio.country || selectedRadio.city || ''}
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <div className="home-player-controls">
                   <button
@@ -600,9 +707,10 @@ function App() {
                         <button
                           key={radio.id}
                           onClick={() => {
-                            // Selecionar a rádio no globo (preview)
+                            // Selecionar a rádio no globo como se o usuário tivesse feito manualmente
                             handleRadioPreview(radio);
-                            // Voltar para a tela home para ver o globo
+                            setSelectedRadio(radio);
+                            setCenterLocation({ latitude: radio.latitude, longitude: radio.longitude });
                             setView('home');
                             setSelectedCountry(null);
                             setSearchCountry('');
@@ -696,9 +804,9 @@ function App() {
                         <button
                           key={radio.id}
                           onClick={() => {
-                            // Selecionar a rádio no globo (preview)
                             handleRadioPreview(radio);
-                            // Voltar para a tela home para ver o globo
+                            setSelectedRadio(radio);
+                            setCenterLocation({ latitude: radio.latitude, longitude: radio.longitude });
                             setView('home');
                             setSelectedCountry(null);
                             setSearchCountry('');

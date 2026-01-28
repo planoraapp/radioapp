@@ -117,7 +117,7 @@ export async function getStationsByCountry(
 }
 
 /**
- * Busca estações por nome do país
+ * Busca estações por nome do país (uma única requisição)
  */
 export async function getStationsByCountryName(
   countryName: string,
@@ -132,6 +132,32 @@ export async function getStationsByCountryName(
     logError(`Erro ao buscar estações de ${countryName}:`, error);
     return [];
   }
+}
+
+/** Tamanho de lote para paginação (API aceita offset/limit; evita cap por requisição) */
+const STATIONS_BATCH_SIZE = 2000;
+
+/**
+ * Busca estações por país em lotes (offset/limit) até atingir totalWanted ou acabar na API.
+ */
+async function getStationsByCountryNamePaginated(
+  countryName: string,
+  totalWanted: number
+): Promise<RadioBrowserStation[]> {
+  const out: RadioBrowserStation[] = [];
+  let offset = 0;
+  const enc = encodeURIComponent(countryName);
+  while (out.length < totalWanted) {
+    const batchSize = Math.min(STATIONS_BATCH_SIZE, totalWanted - out.length + 50);
+    const batch = await apiRequest<RadioBrowserStation[]>(
+      `/json/stations/bycountryexact/${enc}?hidebroken=true&limit=${batchSize}&offset=${offset}&order=votes&reverse=true`
+    );
+    if (batch.length === 0) break;
+    out.push(...batch);
+    offset += batch.length;
+    if (batch.length < batchSize) break;
+  }
+  return out;
 }
 
 /**
@@ -325,21 +351,190 @@ const countryNameToCode: Record<string, string> = {
   'venezuela': 'VE',
   'ecuador': 'EC',
   'equador': 'EC',
+  // Mais países comuns na API Radio Browser
+  'romania': 'RO',
+  'romênia': 'RO',
+  'hungary': 'HU',
+  'hungria': 'HU',
+  'czech republic': 'CZ',
+  'republica tcheca': 'CZ',
+  'philippines': 'PH',
+  'filipinas': 'PH',
+  'indonesia': 'ID',
+  'malaysia': 'MY',
+  'thailand': 'TH',
+  'tailândia': 'TH',
+  'vietnam': 'VN',
+  'viet nam': 'VN',
+  'pakistan': 'PK',
+  'bangladesh': 'BD',
+  'sri lanka': 'LK',
+  'israel': 'IL',
+  'saudi arabia': 'SA',
+  'arabia saudita': 'SA',
+  'united arab emirates': 'AE',
+  'emirados árabes': 'AE',
+  'uae': 'AE',
+  'egypt': 'EG',
+  'egito': 'EG',
+  'nigeria': 'NG',
+  'kenya': 'KE',
+  'ghana': 'GH',
+  'morocco': 'MA',
+  'marrocos': 'MA',
+  'tanzania': 'TZ',
+  'ethiopia': 'ET',
+  'etiópia': 'ET',
+  'senegal': 'SN',
+  'burkina faso': 'BF',
+  "côte d'ivoire": 'CI',
+  "cote d'ivoire": 'CI',
+  'ivory coast': 'CI',
+  'cameroon': 'CM',
+  'camarões': 'CM',
+  'congo': 'CG',
+  'uganda': 'UG',
+  'ukraine': 'UA',
+  'ucrânia': 'UA',
+  'slovakia': 'SK',
+  'eslováquia': 'SK',
+  'serbia': 'RS',
+  'sérvia': 'RS',
+  'croatia': 'HR',
+  'croácia': 'HR',
+  'bulgaria': 'BG',
+  'bulgária': 'BG',
+  'ireland': 'IE',
+  'irlanda': 'IE',
+  'taiwan': 'TW',
+  'hong kong': 'HK',
+  'singapore': 'SG',
+  'singapura': 'SG',
+  'iran': 'IR',
+  'irã': 'IR',
+  'iraq': 'IQ',
+  'iraque': 'IQ',
+  'lebanon': 'LB',
+  'líbano': 'LB',
+  'syria': 'SY',
+  'síria': 'SY',
+  'algeria': 'DZ',
+  'argélia': 'DZ',
+  'tunisia': 'TN',
+  'tunísia': 'TN',
+  'libya': 'LY',
+  'líbia': 'LY',
+  'bolivia': 'BO',
+  'bolívia': 'BO',
+  'paraguay': 'PY',
+  'paraguai': 'PY',
+  'uruguay': 'UY',
+  'uruguai': 'UY',
+  'costa rica': 'CR',
+  'panama': 'PA',
+  'panamá': 'PA',
+  'guatemala': 'GT',
+  'honduras': 'HN',
+  'el salvador': 'SV',
+  'nicaragua': 'NI',
+  'dominican republic': 'DO',
+  'republica dominicana': 'DO',
+  'puerto rico': 'PR',
+  'cuba': 'CU',
+  'jamaica': 'JM',
+  'trinidad and tobago': 'TT',
+  'trinidad e tobago': 'TT',
+  'cyprus': 'CY',
+  'chipre': 'CY',
+  'malta': 'MT',
+  'slovenia': 'SI',
+  'eslovenia': 'SI',
+  'bosnia and herzegovina': 'BA',
+  'bosnia': 'BA',
+  'macedonia': 'MK',
+  'north macedonia': 'MK',
+  'albania': 'AL',
+  'albânia': 'AL',
+  'mongolia': 'MN',
+  'mongólia': 'MN',
+  'kazakhstan': 'KZ',
+  'cazaquistão': 'KZ',
+  'uzbekistan': 'UZ',
+  'uzbequistão': 'UZ',
+  'afghanistan': 'AF',
+  'afeganistão': 'AF',
+  'nepal': 'NP',
+  'myanmar': 'MM',
+  'burma': 'MM',
+  'cambodia': 'KH',
+  'camboja': 'KH',
+  'laos': 'LA',
+  'yemen': 'YE',
+  'iêmen': 'YE',
+  'oman': 'OM',
+  'qatar': 'QA',
+  'kuwait': 'KW',
+  'bahrain': 'BH',
+  'bahrein': 'BH',
+  'jordan': 'JO',
+  'jordânia': 'JO',
+  'palestine': 'PS',
+  'palestina': 'PS',
+  'georgia': 'GE',
+  'geórgia': 'GE',
+  'armenia': 'AM',
+  'armênia': 'AM',
+  'azerbaijan': 'AZ',
+  'azerbaijão': 'AZ',
+  'belarus': 'BY',
+  'bielorrússia': 'BY',
+  'moldova': 'MD',
+  'estonia': 'EE',
+  'estônia': 'EE',
+  'latvia': 'LV',
+  'letônia': 'LV',
+  'lithuania': 'LT',
+  'lituânia': 'LT',
+  'luxembourg': 'LU',
+  'luxemburgo': 'LU',
+  'iceland': 'IS',
+  'islândia': 'IS',
+  'zimbabwe': 'ZW',
+  'zimbábue': 'ZW',
+  'zambia': 'ZM',
+  'zâmbia': 'ZM',
+  'mozambique': 'MZ',
+  'angola': 'AO',
+  'madagascar': 'MG',
+  'madagáscar': 'MG',
+  'mauritius': 'MU',
+  'maurícia': 'MU',
 };
+
+/** Remove acentos para lookup (e.g. "Brasil" → "brasil", "Côte" → "cote") */
+function normalizeNameForLookup(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\s\-]+/g, ' ')
+    .trim();
+}
 
 /**
  * Tenta normalizar e obter código do país
+ * Usa countrycode da API quando válido; senão busca em countryNameToCode por nome (com e sem acentos)
  */
 function normalizeCountryCode(countryCode?: string, countryName?: string): string {
   if (countryCode && countryCode.trim() !== '' && countryCode !== 'Unknown' && countryCode !== 'XX') {
     return countryCode.toUpperCase().trim();
   }
-  
   if (countryName) {
-    const normalizedName = countryName.toLowerCase().trim();
-    return countryNameToCode[normalizedName] || '';
+    const raw = countryName.toLowerCase().trim();
+    const withoutAccents = normalizeNameForLookup(countryName);
+    return countryNameToCode[raw] || countryNameToCode[withoutAccents] || '';
   }
-  
   return '';
 }
 
@@ -384,9 +579,100 @@ function getCountryCenter(countryCode: string): { lat: number; lng: number } {
     PE: { lat: -9.1900, lng: -75.0152 }, // Peru
     VE: { lat: 6.4238, lng: -66.5897 }, // Venezuela
     EC: { lat: -1.8312, lng: -78.1834 }, // Equador
-    RO: { lat: 45.9432, lng: 24.9668 }, // Romênia (ADICIONADO)
-    HU: { lat: 47.1625, lng: 19.5033 }, // Hungria (ADICIONADO)
-    ID: { lat: -0.7893, lng: 113.9213 }, // Indonésia (ADICIONADO)
+    RO: { lat: 45.9432, lng: 24.9668 }, // Romênia
+    HU: { lat: 47.1625, lng: 19.5033 }, // Hungria
+    ID: { lat: -0.7893, lng: 113.9213 }, // Indonésia
+    PH: { lat: 12.8797, lng: 121.7740 }, // Filipinas
+    MY: { lat: 4.2105, lng: 101.9758 }, // Malásia
+    TH: { lat: 15.8700, lng: 100.9925 }, // Tailândia
+    VN: { lat: 14.0583, lng: 108.2772 }, // Vietnã
+    PK: { lat: 30.3753, lng: 69.3451 }, // Paquistão
+    BD: { lat: 23.6850, lng: 90.3563 }, // Bangladesh
+    LK: { lat: 7.8731, lng: 80.7718 }, // Sri Lanka
+    IL: { lat: 31.0461, lng: 34.8516 }, // Israel
+    SA: { lat: 23.8859, lng: 45.0792 }, // Arábia Saudita
+    AE: { lat: 23.4241, lng: 53.8478 }, // Emirados Árabes
+    EG: { lat: 26.8206, lng: 30.8025 }, // Egito
+    NG: { lat: 9.0820, lng: 8.6753 }, // Nigéria
+    KE: { lat: -0.0236, lng: 37.9062 }, // Quênia
+    GH: { lat: 7.9465, lng: -1.0232 }, // Gana
+    MA: { lat: 31.7917, lng: -7.0926 }, // Marrocos
+    TZ: { lat: -6.3690, lng: 34.8888 }, // Tanzânia
+    ET: { lat: 9.1450, lng: 40.4897 }, // Etiópia
+    SN: { lat: 14.7167, lng: -17.4677 }, // Senegal
+    BF: { lat: 12.2383, lng: -1.5616 }, // Burkina Faso
+    CI: { lat: 7.5400, lng: -5.5471 }, // Costa do Marfim
+    CM: { lat: 6.6111, lng: 20.9394 }, // Camarões
+    CG: { lat: -0.2280, lng: 15.8277 }, // Congo
+    UG: { lat: 1.3733, lng: 32.2903 }, // Uganda
+    UA: { lat: 48.3794, lng: 31.1656 }, // Ucrânia
+    CZ: { lat: 49.8175, lng: 15.4728 }, // República Tcheca
+    SK: { lat: 48.6690, lng: 19.6990 }, // Eslováquia
+    RS: { lat: 44.0165, lng: 21.0059 }, // Sérvia
+    HR: { lat: 45.1, lng: 15.2 }, // Croácia
+    BG: { lat: 42.7339, lng: 25.4858 }, // Bulgária
+    IE: { lat: 53.1424, lng: -7.6921 }, // Irlanda
+    TW: { lat: 23.6978, lng: 120.9605 }, // Taiwan
+    HK: { lat: 22.3193, lng: 114.1694 }, // Hong Kong
+    SG: { lat: 1.3521, lng: 103.8198 }, // Singapura
+    IR: { lat: 32.4279, lng: 53.6880 }, // Irã
+    IQ: { lat: 33.2232, lng: 43.6793 }, // Iraque
+    LB: { lat: 33.8547, lng: 35.8623 }, // Líbano
+    SY: { lat: 34.8021, lng: 38.9968 }, // Síria
+    DZ: { lat: 28.0339, lng: 1.6596 }, // Argélia
+    TN: { lat: 33.8869, lng: 9.5375 }, // Tunísia
+    LY: { lat: 26.3351, lng: 17.2283 }, // Líbia
+    BO: { lat: -16.2902, lng: -63.5887 }, // Bolívia
+    PY: { lat: -23.4425, lng: -58.4438 }, // Paraguai
+    UY: { lat: -32.5228, lng: -55.7658 }, // Uruguai
+    CR: { lat: 9.7489, lng: -83.7534 }, // Costa Rica
+    PA: { lat: 8.5380, lng: -80.7821 }, // Panamá
+    GT: { lat: 15.7835, lng: -90.2308 }, // Guatemala
+    HN: { lat: 15.2000, lng: -86.2419 }, // Honduras
+    SV: { lat: 13.7942, lng: -88.8965 }, // El Salvador
+    NI: { lat: 12.8654, lng: -85.2072 }, // Nicarágua
+    DO: { lat: 18.7357, lng: -70.1627 }, // República Dominicana
+    PR: { lat: 18.2208, lng: -66.5901 }, // Porto Rico
+    CU: { lat: 21.5218, lng: -77.7812 }, // Cuba
+    JM: { lat: 18.1096, lng: -77.2975 }, // Jamaica
+    TT: { lat: 10.6918, lng: -61.2225 }, // Trinidad e Tobago
+    CY: { lat: 35.1264, lng: 33.4299 }, // Chipre
+    MT: { lat: 35.9375, lng: 14.3754 }, // Malta
+    SI: { lat: 46.1512, lng: 14.9955 }, // Eslovênia
+    BA: { lat: 43.9159, lng: 17.6791 }, // Bósnia e Herzegovina
+    MK: { lat: 41.6086, lng: 21.7453 }, // Macedônia do Norte
+    AL: { lat: 41.1533, lng: 20.1683 }, // Albânia
+    MN: { lat: 46.8625, lng: 103.8467 }, // Mongólia
+    KZ: { lat: 48.0196, lng: 66.9237 }, // Cazaquistão
+    UZ: { lat: 41.3775, lng: 64.5853 }, // Uzbequistão
+    AF: { lat: 33.9391, lng: 67.7100 }, // Afeganistão
+    NP: { lat: 28.3949, lng: 84.1240 }, // Nepal
+    MM: { lat: 21.9162, lng: 95.9560 }, // Mianmar
+    KH: { lat: 12.5657, lng: 104.9910 }, // Camboja
+    LA: { lat: 19.8563, lng: 102.4955 }, // Laos
+    YE: { lat: 15.5527, lng: 48.5164 }, // Iêmen
+    OM: { lat: 21.4735, lng: 55.9754 }, // Omã
+    QA: { lat: 25.2854, lng: 51.5310 }, // Qatar
+    KW: { lat: 29.3117, lng: 47.4818 }, // Kuwait
+    BH: { lat: 26.0667, lng: 50.5577 }, // Bahrein
+    JO: { lat: 30.5852, lng: 36.2384 }, // Jordânia
+    PS: { lat: 31.9522, lng: 35.2332 }, // Palestina
+    GE: { lat: 42.3154, lng: 43.3569 }, // Geórgia
+    AM: { lat: 40.0691, lng: 45.0382 }, // Armênia
+    AZ: { lat: 40.1431, lng: 47.5769 }, // Azerbaijão
+    BY: { lat: 53.7098, lng: 27.9534 }, // Bielorrússia
+    MD: { lat: 47.4116, lng: 28.3699 }, // Moldávia
+    EE: { lat: 58.5953, lng: 25.0136 }, // Estônia
+    LV: { lat: 56.8796, lng: 24.6032 }, // Letônia
+    LT: { lat: 55.1694, lng: 23.8813 }, // Lituânia
+    LU: { lat: 49.8153, lng: 6.1296 }, // Luxemburgo
+    IS: { lat: 64.9631, lng: -19.0208 }, // Islândia
+    ZW: { lat: -19.0154, lng: 29.1549 }, // Zimbábue
+    ZM: { lat: -13.1339, lng: 27.8493 }, // Zâmbia
+    MZ: { lat: -18.6657, lng: 35.5296 }, // Moçambique
+    AO: { lat: -11.2027, lng: 17.8739 }, // Angola
+    MG: { lat: -18.7669, lng: 46.8691 }, // Madagascar
+    MU: { lat: -20.3484, lng: 57.5522 }, // Maurícia
   };
 
   // Se não encontrar no mapeamento, retornar null para indicar que não temos dados
@@ -427,7 +713,7 @@ const countryBounds: Record<string, { minLat: number; maxLat: number; minLng: nu
   PL: { minLat: 49, maxLat: 55, minLng: 14, maxLng: 25 }, // Polônia
   SE: { minLat: 55, maxLat: 69, minLng: 11, maxLng: 24 }, // Suécia
   NO: { minLat: 58, maxLat: 71, minLng: 5, maxLng: 31 }, // Noruega
-  DK: { minLat: 54.5, maxLat: 57.8, minLng: 8, maxLng: 15.2 }, // Dinamarca (incluindo Groenlândia e territórios)
+  DK: { minLat: 54.5, maxLat: 57.8, minLng: 8, maxLng: 15.2 }, // Dinamarca (continental + Faroe; Groenlândia não incluída)
   FI: { minLat: 60, maxLat: 70, minLng: 20, maxLng: 32 }, // Finlândia
   GR: { minLat: 35, maxLat: 42, minLng: 20, maxLng: 28 }, // Grécia
   TR: { minLat: 36, maxLat: 42, minLng: 26, maxLng: 45 }, // Turquia
@@ -441,7 +727,98 @@ const countryBounds: Record<string, { minLat: number; maxLat: number; minLng: nu
   EC: { minLat: -5.0, maxLat: 1.5, minLng: -81.1, maxLng: -75.2 }, // Equador
   RO: { minLat: 43.6, maxLat: 48.2, minLng: 20.2, maxLng: 30 }, // Romênia (ADICIONADO)
   HU: { minLat: 45.7, maxLat: 48.6, minLng: 16.1, maxLng: 22.9 }, // Hungria (ADICIONADO)
-  ID: { minLat: -11, maxLat: 6, minLng: 95, maxLng: 141 }, // Indonésia (ADICIONADO)
+  ID: { minLat: -11, maxLat: 6, minLng: 95, maxLng: 141 }, // Indonésia
+  PH: { minLat: 4.5, maxLat: 21, minLng: 117, maxLng: 127 }, // Filipinas
+  MY: { minLat: 0.8, maxLat: 7.4, minLng: 99.6, maxLng: 119.3 }, // Malásia (península + Borneo)
+  TH: { minLat: 5.6, maxLat: 20.5, minLng: 97.3, maxLng: 105.6 }, // Tailândia
+  VN: { minLat: 8.2, maxLat: 23.4, minLng: 102.1, maxLng: 109.5 }, // Vietnã
+  PK: { minLat: 23.5, maxLat: 37.1, minLng: 61, maxLng: 75.1 }, // Paquistão
+  BD: { minLat: 20.4, maxLat: 26.6, minLng: 88, maxLng: 92.7 }, // Bangladesh
+  LK: { minLat: 5.9, maxLat: 9.8, minLng: 79.5, maxLng: 82 }, // Sri Lanka
+  IL: { minLat: 29.5, maxLat: 33.3, minLng: 34.2, maxLng: 35.9 }, // Israel
+  SA: { minLat: 16.4, maxLat: 32.2, minLng: 34.5, maxLng: 55.7 }, // Arábia Saudita
+  AE: { minLat: 22.6, maxLat: 26.2, minLng: 51.6, maxLng: 56.4 }, // Emirados Árabes
+  EG: { minLat: 22, maxLat: 31.7, minLng: 25, maxLng: 36.9 }, // Egito
+  NG: { minLat: 4.3, maxLat: 13.9, minLng: 2.7, maxLng: 14.7 }, // Nigéria
+  KE: { minLat: -4.7, maxLat: 5.0, minLng: 33.9, maxLng: 41.9 }, // Quênia
+  GH: { minLat: 4.7, maxLat: 11.2, minLng: -3.3, maxLng: 1.2 }, // Gana
+  MA: { minLat: 27.4, maxLat: 35.9, minLng: -13.2, maxLng: -1 }, // Marrocos
+  TZ: { minLat: -11.7, maxLat: -0.99, minLng: 29.3, maxLng: 40.4 }, // Tanzânia
+  ET: { minLat: 3.4, maxLat: 14.9, minLng: 33, maxLng: 48 }, // Etiópia
+  SN: { minLat: 12.3, maxLat: 16.7, minLng: -17.5, maxLng: -11.3 }, // Senegal
+  BF: { minLat: 9.4, maxLat: 15.1, minLng: -5.5, maxLng: 2.4 }, // Burkina Faso
+  CI: { minLat: 4.2, maxLat: 10.7, minLng: -8.6, maxLng: -2.5 }, // Costa do Marfim
+  CM: { minLat: 1.7, maxLat: 13.1, minLng: 8.5, maxLng: 16.2 }, // Camarões
+  CG: { minLat: -5.0, maxLat: 3.7, minLng: 11.1, maxLng: 18.6 }, // Congo
+  UG: { minLat: -1.5, maxLat: 4.2, minLng: 29.6, maxLng: 35.0 }, // Uganda
+  UA: { minLat: 44.4, maxLat: 52.4, minLng: 22.1, maxLng: 40.2 }, // Ucrânia
+  CZ: { minLat: 48.6, maxLat: 51.1, minLng: 12.1, maxLng: 18.9 }, // República Tcheca
+  SK: { minLat: 47.7, maxLat: 49.6, minLng: 16.8, maxLng: 22.6 }, // Eslováquia
+  RS: { minLat: 42.2, maxLat: 46.2, minLng: 18.8, maxLng: 23 }, // Sérvia
+  HR: { minLat: 42.4, maxLat: 46.6, minLng: 13.5, maxLng: 19.5 }, // Croácia
+  BG: { minLat: 41.2, maxLat: 44.2, minLng: 22.4, maxLng: 28.6 }, // Bulgária
+  IE: { minLat: 51.4, maxLat: 55.4, minLng: -10.5, maxLng: -6 }, // Irlanda
+  TW: { minLat: 21.9, maxLat: 25.3, minLng: 120, maxLng: 122 }, // Taiwan
+  HK: { minLat: 22.2, maxLat: 22.6, minLng: 113.8, maxLng: 114.4 }, // Hong Kong
+  SG: { minLat: 1.1, maxLat: 1.5, minLng: 103.6, maxLng: 104.1 }, // Singapura
+  IR: { minLat: 25.1, maxLat: 39.8, minLng: 44, maxLng: 63.3 }, // Irã
+  IQ: { minLat: 29.1, maxLat: 37.4, minLng: 38.8, maxLng: 48.6 }, // Iraque
+  LB: { minLat: 33.0, maxLat: 34.7, minLng: 35.1, maxLng: 36.6 }, // Líbano
+  SY: { minLat: 32.3, maxLat: 37.3, minLng: 35.7, maxLng: 42.4 }, // Síria
+  DZ: { minLat: 18.9, maxLat: 37.1, minLng: -8.7, maxLng: 12 }, // Argélia
+  TN: { minLat: 30.2, maxLat: 37.6, minLng: 7.5, maxLng: 11.6 }, // Tunísia
+  LY: { minLat: 19.5, maxLat: 33.2, minLng: 9.3, maxLng: 25.2 }, // Líbia
+  BO: { minLat: -22.9, maxLat: -9.7, minLng: -69.6, maxLng: -57.5 }, // Bolívia
+  PY: { minLat: -27.6, maxLat: -19.3, minLng: -62.6, maxLng: -54.3 }, // Paraguai
+  UY: { minLat: -35.2, maxLat: -30.1, minLng: -58.5, maxLng: -53.1 }, // Uruguai
+  CR: { minLat: 8.0, maxLat: 11.2, minLng: -87.0, maxLng: -82.5 }, // Costa Rica
+  PA: { minLat: 7.2, maxLat: 9.6, minLng: -83.0, maxLng: -77.2 }, // Panamá
+  GT: { minLat: 13.7, maxLat: 17.8, minLng: -92.2, maxLng: -88.2 }, // Guatemala
+  HN: { minLat: 12.98, maxLat: 16.05, minLng: -89.4, maxLng: -83.1 }, // Honduras
+  SV: { minLat: 13.1, maxLat: 14.4, minLng: -90.1, maxLng: -87.7 }, // El Salvador
+  NI: { minLat: 10.7, maxLat: 15.0, minLng: -87.7, maxLng: -83.1 }, // Nicarágua
+  DO: { minLat: 17.5, maxLat: 20.0, minLng: -72.0, maxLng: -68.3 }, // República Dominicana
+  PR: { minLat: 17.9, maxLat: 18.5, minLng: -67.3, maxLng: -65.2 }, // Porto Rico
+  CU: { minLat: 19.8, maxLat: 23.2, minLng: -84.9, maxLng: -74.1 }, // Cuba
+  JM: { minLat: 17.7, maxLat: 18.5, minLng: -78.4, maxLng: -76.2 }, // Jamaica
+  TT: { minLat: 10.0, maxLat: 11.4, minLng: -61.9, maxLng: -60.5 }, // Trinidad e Tobago
+  CY: { minLat: 34.6, maxLat: 35.7, minLng: 32.3, maxLng: 34.6 }, // Chipre
+  MT: { minLat: 35.8, maxLat: 36.1, minLng: 14.2, maxLng: 14.6 }, // Malta
+  SI: { minLat: 45.4, maxLat: 46.9, minLng: 13.4, maxLng: 16.6 }, // Eslovênia
+  BA: { minLat: 42.6, maxLat: 45.3, minLng: 15.7, maxLng: 19.6 }, // Bósnia e Herzegovina
+  MK: { minLat: 40.9, maxLat: 42.4, minLng: 20.4, maxLng: 23.0 }, // Macedônia do Norte
+  AL: { minLat: 39.6, maxLat: 42.7, minLng: 19.3, maxLng: 21.1 }, // Albânia
+  MN: { minLat: 41.6, maxLat: 52.2, minLng: 87.7, maxLng: 119.9 }, // Mongólia
+  KZ: { minLat: 40.6, maxLat: 55.4, minLng: 46.5, maxLng: 87.4 }, // Cazaquistão
+  UZ: { minLat: 37.2, maxLat: 45.6, minLng: 56, maxLng: 73.2 }, // Uzbequistão
+  AF: { minLat: 29.4, maxLat: 38.5, minLng: 60.5, maxLng: 74.9 }, // Afeganistão
+  NP: { minLat: 26.4, maxLat: 30.4, minLng: 80.1, maxLng: 88.2 }, // Nepal
+  MM: { minLat: 9.8, maxLat: 28.5, minLng: 92.2, maxLng: 101.2 }, // Mianmar
+  KH: { minLat: 10.4, maxLat: 14.7, minLng: 102.3, maxLng: 107.6 }, // Camboja
+  LA: { minLat: 13.9, maxLat: 22.5, minLng: 100.1, maxLng: 107.6 }, // Laos
+  YE: { minLat: 12.6, maxLat: 19.0, minLng: 42.5, maxLng: 54.7 }, // Iêmen
+  OM: { minLat: 16.6, maxLat: 26.4, minLng: 52.0, maxLng: 60.0 }, // Omã
+  QA: { minLat: 24.5, maxLat: 26.2, minLng: 50.7, maxLng: 51.6 }, // Qatar
+  KW: { minLat: 28.5, maxLat: 30.1, minLng: 46.5, maxLng: 48.4 }, // Kuwait
+  BH: { minLat: 25.8, maxLat: 26.3, minLng: 50.4, maxLng: 50.6 }, // Bahrein
+  JO: { minLat: 29.2, maxLat: 33.4, minLng: 34.9, maxLng: 39.3 }, // Jordânia
+  PS: { minLat: 31.2, maxLat: 32.6, minLng: 34.2, maxLng: 35.6 }, // Palestina
+  GE: { minLat: 41.1, maxLat: 43.6, minLng: 40.0, maxLng: 46.8 }, // Geórgia
+  AM: { minLat: 38.8, maxLat: 41.3, minLng: 43.4, maxLng: 46.6 }, // Armênia
+  AZ: { minLat: 38.4, maxLat: 41.9, minLng: 44.8, maxLng: 51.0 }, // Azerbaijão
+  BY: { minLat: 51.3, maxLat: 56.2, minLng: 23.2, maxLng: 32.8 }, // Bielorrússia
+  MD: { minLat: 45.5, maxLat: 48.5, minLng: 26.6, maxLng: 30.2 }, // Moldávia
+  EE: { minLat: 57.5, maxLat: 59.7, minLng: 21.8, maxLng: 28.2 }, // Estônia
+  LV: { minLat: 55.7, maxLat: 58.1, minLng: 21.0, maxLng: 28.2 }, // Letônia
+  LT: { minLat: 53.9, maxLat: 56.5, minLng: 21.0, maxLng: 26.8 }, // Lituânia
+  LU: { minLat: 49.4, maxLat: 50.2, minLng: 5.7, maxLng: 6.5 }, // Luxemburgo
+  IS: { minLat: 63.4, maxLat: 66.5, minLng: -24.5, maxLng: -13.5 }, // Islândia
+  ZW: { minLat: -22.4, maxLat: -15.6, minLng: 25.2, maxLng: 33.1 }, // Zimbábue
+  ZM: { minLat: -18.1, maxLat: -8.2, minLng: 22.0, maxLng: 33.7 }, // Zâmbia
+  MZ: { minLat: -26.9, maxLat: -10.5, minLng: 30.2, maxLng: 40.9 }, // Moçambique
+  AO: { minLat: -18.0, maxLat: -4.4, minLng: 11.7, maxLng: 24.1 }, // Angola
+  MG: { minLat: -25.6, maxLat: -11.9, minLng: 43.2, maxLng: 50.5 }, // Madagascar
+  MU: { minLat: -20.5, maxLat: -19.9, minLng: 57.3, maxLng: 57.8 }, // Maurícia
 };
 
 /**
@@ -514,48 +891,41 @@ function validateAndCorrectCoordinates(
 }
 
 /**
- * Versão síncrona (mantida para compatibilidade)
- * Usa geocodificação básica sem Who's On First
+ * Converte estação da API em RadioStation.
+ * Pins no globo são posicionados pelo país de origem:
+ * - Se a API envia geo_lat/geo_long: usa essas coordenadas após validar que estão dentro
+ *   dos limites do país (countrycode/country da API); se fora, corrige para o centro do país.
+ * - Se não há coordenadas: usa o centro do país a partir de countrycode/country da API.
  */
 export function transformToRadioStation(
   apiStation: RadioBrowserStation,
   index: number
 ): RadioStation {
-  // Tentar obter coordenadas da API ou geocodificar a cidade
   let latitude = 0;
   let longitude = 0;
+  const countryCode = normalizeCountryCode(apiStation.countrycode ?? '', apiStation.country ?? '');
 
   if (apiStation.geo_lat && apiStation.geo_long) {
     const lat = parseFloat(apiStation.geo_lat);
     const lng = parseFloat(apiStation.geo_long);
-    // Validar se as coordenadas são válidas
     if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
       latitude = lat;
       longitude = lng;
-      
-      // Validar e corrigir coordenadas se estiverem no país errado
-      const validated = validateAndCorrectCoordinates(
-        latitude, 
-        longitude, 
-        apiStation.countrycode || '', 
-        apiStation.country || ''
-      );
+      const validated = validateAndCorrectCoordinates(latitude, longitude, apiStation.countrycode ?? '', apiStation.country ?? '');
       latitude = validated.lat;
       longitude = validated.lng;
     }
   }
-  
-  // Se não tiver coordenadas válidas, tentar identificar país corretamente
+
   if (latitude === 0 && longitude === 0) {
-    const countryCode = normalizeCountryCode(apiStation.countrycode, apiStation.country);
-    
-    // Usar centro do país se encontramos um código válido
     if (countryCode) {
       const countryCoords = getCountryCenter(countryCode);
-      latitude = countryCoords.lat;
-      longitude = countryCoords.lng;
-    } else {
-      // Último fallback: distribuição baseada no nome (evita agrupamento em um país específico)
+      if (countryCoords.lat !== 0 || countryCoords.lng !== 0) {
+        latitude = countryCoords.lat;
+        longitude = countryCoords.lng;
+      }
+    }
+    if (latitude === 0 && longitude === 0) {
       const hash = (apiStation.name || apiStation.stationuuid || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
       latitude = (hash % 180) - 90;
       longitude = ((hash * 7) % 360) - 180;
@@ -742,12 +1112,12 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
 export type OnStationsProgress = (stations: RadioStation[]) => void;
 
 /**
- * Busca estações populares priorizando Brasil, EUA e Europa
- * 60% das estações vêm de regiões priorizadas, 40% do resto do mundo.
- * Usa paralelismo (grupos de países) e onProgress para exibir estações aos poucos.
+ * Busca até totalLimit estações (ex.: 40k), sem teto por região.
+ * Prioriza Brasil, EUA, UK e depois outros países; completa com busca global.
+ * Usa paralelismo e onProgress para exibir estações aos poucos.
  */
 export async function getPopularStationsPrioritized(
-  totalLimit: number = 20000,
+  totalLimit: number = 40000,
   priorityCountries: string[] = [
     'Brazil', 'United States of America', 'United Kingdom', // Nomes exatos da API Radio Browser
     'Germany', 'France', 'Spain', 'Italy', 'Netherlands', 'Portugal', // Europa: 6 países
@@ -758,8 +1128,8 @@ export async function getPopularStationsPrioritized(
   ],
   onProgress?: OnStationsProgress
 ): Promise<RadioStation[]> {
-  const CACHE_KEY = 'radio_browser_stations_prioritized_cache';
-  const CACHE_TIMESTAMP_KEY = 'radio_browser_stations_prioritized_timestamp';
+  const CACHE_KEY = `radio_browser_stations_prioritized_cache_${totalLimit}`;
+  const CACHE_TIMESTAMP_KEY = `radio_browser_stations_prioritized_timestamp_${totalLimit}`;
   const CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 horas
   const PARALLEL_COUNTRIES = 5; // Países por grupo em paralelo
 
@@ -768,70 +1138,72 @@ export async function getPopularStationsPrioritized(
   };
 
   try {
-    // Verificar cache primeiro
     const cachedTimestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
     const cachedStations = localStorage.getItem(CACHE_KEY);
-
     if (cachedTimestamp && cachedStations) {
       const cacheAge = Date.now() - parseInt(cachedTimestamp, 10);
       if (cacheAge < CACHE_DURATION) {
-        log('Carregando estações priorizadas do cache...');
+        log(`Carregando ${totalLimit} estações do cache...`);
         const parsed = JSON.parse(cachedStations) as RadioStation[];
         report(parsed);
         return parsed;
       }
     }
 
-    log(`Buscando ${totalLimit} estações priorizando regiões (paralelo em grupos de ${PARALLEL_COUNTRIES})...`);
+    log(`Buscando até ${totalLimit} estações (paralelo em grupos de ${PARALLEL_COUNTRIES}, com paginação)...`);
 
-    const priorityLimit = Math.floor(totalLimit * 0.6);
     const allStations: RadioStation[] = [];
     const includedStationIds = new Set<string>();
 
-    const stationsPerPrimary = Math.floor(totalLimit * 0.1);
     const primaryCountries = priorityCountries.slice(0, 3);
+    const primaryLimits = [
+      Math.floor(totalLimit * 0.2),  // Brasil: 20% (ex.: 8000 para 40k)
+      Math.floor(totalLimit * 0.1),  // EUA: 10%
+      Math.floor(totalLimit * 0.08), // UK: 8%
+    ];
 
-    // Fase rápida: 3 países principais em paralelo → usuário vê ~6k estações logo
-    const primaryPromises = primaryCountries.map((country) =>
-      getStationsByCountryName(country, stationsPerPrimary + 100)
+    // Fase 1: 3 países principais em paralelo, com paginação até atingir as cotas
+    const primaryPromises = primaryCountries.map((country, i) =>
+      getStationsByCountryNamePaginated(country, primaryLimits[i] ?? Math.floor(totalLimit * 0.1))
     );
     const primaryResults = await Promise.all(primaryPromises);
 
     for (let i = 0; i < primaryResults.length; i++) {
+      const limit = primaryLimits[i] ?? Math.floor(totalLimit * 0.1);
       const countryStations = primaryResults[i] || [];
       const working = countryStations.filter((s) => s.lastcheckok === 1);
       const transformed = working
         .filter((s) => !includedStationIds.has(s.stationuuid))
-        .slice(0, stationsPerPrimary)
+        .slice(0, limit)
         .map((s, idx) => {
           includedStationIds.add(s.stationuuid);
           return transformToRadioStation(s, allStations.length + idx);
         });
       allStations.push(...transformed);
       log(`✓ ${primaryCountries[i]}: ${transformed.length} estações`);
+      report(allStations); // Report após cada país da Fase 1 → primeira tela mais rápida (~8k, ~12k, ~15k)
     }
-    report(allStations);
 
-    // Países secundários em grupos paralelos
+    // Fase 2: países secundários em grupos paralelos (sem teto; preenche até totalLimit)
     const secondaryCountries = priorityCountries.slice(3);
-    const remainingPrioritySlots = Math.max(0, priorityLimit - allStations.length);
+    const remainingSlots = Math.max(0, totalLimit - allStations.length);
     const stationsPerCountry = secondaryCountries.length
-      ? Math.floor(remainingPrioritySlots / secondaryCountries.length)
+      ? Math.floor(remainingSlots / secondaryCountries.length)
       : 0;
 
     for (let g = 0; g < secondaryCountries.length; g += PARALLEL_COUNTRIES) {
-      if (allStations.length >= priorityLimit) break;
+      if (allStations.length >= totalLimit) break;
       const chunk = secondaryCountries.slice(g, g + PARALLEL_COUNTRIES);
       const chunkPromises = chunk.map((country) =>
-        getStationsByCountryName(country, stationsPerCountry + 100)
+        getStationsByCountryNamePaginated(country, Math.min(stationsPerCountry + 200, totalLimit - allStations.length))
       );
       const chunkResults = await Promise.all(chunkPromises);
 
       for (let i = 0; i < chunkResults.length; i++) {
-        if (allStations.length >= priorityLimit) break;
+        if (allStations.length >= totalLimit) break;
         const countryStations = chunkResults[i] || [];
         const working = countryStations.filter((s) => s.lastcheckok === 1);
-        const availableSlots = priorityLimit - allStations.length;
+        const availableSlots = totalLimit - allStations.length;
         const batch = working
           .filter((s) => !includedStationIds.has(s.stationuuid))
           .slice(0, Math.min(availableSlots, stationsPerCountry));
@@ -845,24 +1217,33 @@ export async function getPopularStationsPrioritized(
       report(allStations);
     }
 
-    // Completar com estações globais populares
-    const remaining = totalLimit - allStations.length;
+    // Fase 3: completar com estações globais populares em lotes (offset/limit) até totalLimit
+    let remaining = totalLimit - allStations.length;
     if (remaining > 0) {
       try {
-        log(`Buscando ${remaining} estações globais populares...`);
-        const globalStations = await apiRequest<RadioBrowserStation[]>(
-          `/json/stations/search?hidebroken=true&limit=${remaining + 500}&order=votes&reverse=true`
-        );
-        const working = globalStations.filter((s) => s.lastcheckok === 1);
-        const batch = working
-          .filter((s) => !includedStationIds.has(s.stationuuid))
-          .slice(0, remaining);
-        const transformed = batch.map((s, idx) => {
-          includedStationIds.add(s.stationuuid);
-          return transformToRadioStation(s, allStations.length + idx);
-        });
-        allStations.push(...transformed);
-        log(`✓ Global: ${transformed.length} estações`);
+        log(`Buscando até ${remaining} estações globais populares (paginação)...`);
+        let globalOffset = 0;
+        let addedGlobal = 0;
+        while (remaining > 0) {
+          const batchSize = Math.min(STATIONS_BATCH_SIZE, remaining + 200);
+          const globalBatch = await apiRequest<RadioBrowserStation[]>(
+            `/json/stations/search?hidebroken=true&limit=${batchSize}&offset=${globalOffset}&order=votes&reverse=true`
+          );
+          const working = globalBatch.filter((s) => s.lastcheckok === 1);
+          const batch = working
+            .filter((s) => !includedStationIds.has(s.stationuuid))
+            .slice(0, remaining);
+          const transformed = batch.map((s, idx) => {
+            includedStationIds.add(s.stationuuid);
+            return transformToRadioStation(s, allStations.length + idx);
+          });
+          allStations.push(...transformed);
+          addedGlobal += transformed.length;
+          remaining = totalLimit - allStations.length;
+          globalOffset += globalBatch.length;
+          if (globalBatch.length < batchSize) break;
+        }
+        log(`✓ Global: ${addedGlobal} estações`);
       } catch (e) {
         logWarn('Erro ao buscar estações globais:', e);
       }

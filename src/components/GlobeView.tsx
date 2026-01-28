@@ -27,7 +27,7 @@ const logError = (...args: any[]) => {
 const GLOBE_RADIUS = 1.2;
 const MIN_DISTANCE_OFFSET = 0.15; // Margem de segurança para evitar atravessar o globo
 const MIN_DISTANCE = GLOBE_RADIUS + MIN_DISTANCE_OFFSET; // 1.35 (não permite atravessar)
-const MAX_DISTANCE = 5.0;
+const MAX_DISTANCE = 2.5; // Distância inicial da câmera: globo só pode ser aproximado, não reduzido
 
 // Thresholds para LOD geográfico (todos maiores que MIN_DISTANCE). Estações são sempre pins individuais.
 const LOD_COUNTRIES_THRESHOLD = 3.0; // Zoom baixo: apenas países
@@ -62,6 +62,9 @@ interface GlobeViewProps {
   selectedRadio?: RadioStation | null;
   onSelectionPosition?: (position: { x: number; y: number } | null) => void;
   centerLocation?: { latitude: number; longitude: number } | null;
+  selectorOffsetPx?: { x: number; y: number };
+  commitSelectionRequested?: boolean;
+  onSelectionCommitProcessed?: () => void;
 }
 
 interface RadioPointProps {
@@ -94,20 +97,18 @@ function RadioPoint({ position, radio, onPress, isSelected, camera, onPinClick }
     );
     if (camera) {
       const distance = camera.position.distanceTo(m.position);
-      const baseSize = radio.isMajor ? 0.03 : 0.02;
-      const minScale = radio.isMajor ? 0.2 : 0.15;
-      const maxScale = radio.isMajor ? 0.35 : 0.28;
+      const baseSize = 0.025;
+      const minScale = 0.2;
+      const maxScale = 0.3;
       const scale = Math.max(minScale, Math.min(maxScale, baseSize / distance));
-      const majorMultiplier = radio.isMajor ? 1.2 : 1.0;
-      const finalScale = scale * majorMultiplier;
-      m.scale.setScalar(hovered ? finalScale * 1.2 : finalScale);
+      m.scale.setScalar(hovered ? scale * 1.2 : scale);
     } else {
-      const defaultScale = radio.isMajor ? 0.35 : 0.28;
+      const defaultScale = 0.3;
       m.scale.setScalar(hovered ? defaultScale * 1.2 : defaultScale);
     }
   });
 
-  const baseRadius = radio.isMajor ? 0.012 : 0.01;
+  const baseRadius = 0.01;
 
   return (
     <mesh
@@ -220,15 +221,13 @@ function InstancedRadioPoints({
       if (group) worldPos.copy(pointPos).applyMatrix4(group.matrixWorld);
       else worldPos.copy(pointPos);
       const distance = camera.position.distanceTo(worldPos);
-      const baseSize = point.radio.isMajor ? 0.03 : 0.02;
-      const minScale = point.radio.isMajor ? 0.2 : 0.15;
-      const maxScale = point.radio.isMajor ? 0.35 : 0.28;
+      const baseSize = 0.025;
+      const minScale = 0.2;
+      const maxScale = 0.3;
       const scale = Math.max(minScale, Math.min(maxScale, baseSize / distance));
-      const majorMultiplier = point.radio.isMajor ? 1.2 : 1.0;
-      const finalScale = scale * majorMultiplier;
       normal.copy(pointPos).normalize();
       quat.setFromUnitVectors(upZ, normal);
-      scaleVec.setScalar(finalScale);
+      scaleVec.setScalar(scale);
       matrix.compose(pointPos, quat, scaleVec);
       instancedMeshRef.current!.setMatrixAt(i, matrix);
     });
@@ -237,7 +236,7 @@ function InstancedRadioPoints({
   });
   
   // Capacidade mínima para 16k+ rádios; evita buffer pequeno quando a lista cresce após o carregamento
-  const instanceCount = Math.max(radioPoints.length, 20000);
+  const instanceCount = Math.max(radioPoints.length, 40000);
 
   return (
     <instancedMesh
@@ -336,14 +335,20 @@ function RadioPointsList({
 
 // Throttle para busca da rádio mais próxima do centro (evita perda de contexto WebGL com muitos pontos)
 const CLOSEST_RADIO_CHECK_MS = 120;
-const MAX_POINTS_TO_CHECK = 2000;
-// Estilo Radio Garden: círculo de proporções fixas no centro. Só há "estação mais próxima" quando
-// alguma estação está dentro desse círculo (projeção a < este raio do centro em NDC).
-const SNAP_THRESHOLD_NDC = 0.42;
-// Tempo que o usuário deve deixar o pin sob o seletor para a rádio ser selecionada (evita trocar a cada micro movimento).
-const SELECT_STABLE_MS = 220;
-
-function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, centerLocation }: GlobeViewProps) {
+// Verificar todas as estações para que nenhum ponto visível fique "não selecionável" (ex.: Mato Grosso)
+const MAX_POINTS_TO_CHECK = 100000;
+// Diâmetro do círculo seletor em pixels (deve bater com .radio-selector-circle width/height no App).
+const SELECTOR_CIRCLE_DIAMETER_PX = 29;
+function Globe({
+  radios,
+  onRadioSelect,
+  selectedRadio,
+  onSelectionPosition,
+  centerLocation,
+  selectorOffsetPx,
+  commitSelectionRequested,
+  onSelectionCommitProcessed,
+}: GlobeViewProps) {
   const lastSelectedRef = useRef<string | null>(null);
   const globeGroupRef = useRef<THREE.Group>(null);
   const targetRotationRef = useRef<{ x: number; y: number } | null>(null);
@@ -353,9 +358,7 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
   const [rotateSpeed, setRotateSpeed] = useState(0.4);
   const lastClosestCheckRef = useRef(0);
   const closestResultRef = useRef<{ radio: RadioStation; projected: THREE.Vector3; point3D: THREE.Vector3 } | null>(null);
-  // Estação sob o seletor: só reportar seleção quando a mesma está sob o seletor por SELECT_STABLE_MS
-  const selectCandidateRef = useRef<{ id: string | null; since: number }>({ id: null, since: 0 });
-  
+
   // Função para rotacionar o globo e centralizar um pin clicado
   const handlePinClick = useCallback((pinPosition: [number, number, number]) => {
     if (!cameraRef.current || !globeGroupRef.current) return;
@@ -430,97 +433,112 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
     return points;
   }, [radios]);
 
-  // Detectar pin sob o seletor: só seleciona quando o usuário deixa o pin sob o círculo por SELECT_STABLE_MS
+  // Centro do seletor em NDC: um pixel no centro do círculo é a referência de proximidade.
+  // Quando o seletor é arrastado (selectorOffsetPx), o centro em pixels é (size/2 + offset); converter para NDC.
+  const getSelectorCenterNDC = (size: { width: number; height: number }) => {
+    if (selectorOffsetPx == null || size.width <= 0 || size.height <= 0) {
+      return new THREE.Vector2(0, 0);
+    }
+    return new THREE.Vector2(
+      2 * selectorOffsetPx.x / size.width,
+      -2 * selectorOffsetPx.y / size.height
+    );
+  };
+
+  // Detectar pin sob o seletor; rotação para centralizar o mais próximo no centro do seletor; seleção só ao soltar (commit).
   useFrame(({ camera, size }) => {
-    // Sempre atualizar a referência da câmera
     cameraRef.current = camera;
-    
-        // Calcular velocidade de rotação baseada no zoom (distância da câmera)
-        const cameraDistance = camera.position.length();
-        const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE)));
-    // Velocidade reduz quando zoom está alto (normalizedDistance baixo)
-    // Velocidade base: 0.15 a 0.4 (quando normalizado)
+
+    const cameraDistance = camera.position.length();
+    const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE)));
     const baseSpeed = 0.4;
-    const speedMultiplier = 0.375 + (normalizedDistance * 0.625); // Entre 0.375 e 1.0
+    const speedMultiplier = 0.375 + (normalizedDistance * 0.625);
     const newRotateSpeed = baseSpeed * speedMultiplier;
-    
-    // Atualizar velocidade de rotação do OrbitControls
     if (controlsRef.current) {
       controlsRef.current.rotateSpeed = newRotateSpeed;
     }
     setRotateSpeed(newRotateSpeed);
-    
-    
-    // Rotação é livre. Só há seleção quando o usuário deixa um pin sob o seletor (dentro do círculo).
-    // Entre as estações dentro do círculo, a mais próxima do centro é a candidata.
-    const screenCenterNDC = new THREE.Vector2(0, 0);
+
+    const selectorCenterNDC = getSelectorCenterNDC(size);
+
+    // Raio do círculo seletor em NDC: só estações dentro desse raio são consideradas "centralizadas".
+    const minSize = Math.min(size.width, size.height);
+    const selectorRadiusNDC = minSize > 0 ? SELECTOR_CIRCLE_DIAMETER_PX / minSize : 0.1;
+
+    // Seletor ativo quando temos offset (incluindo 0,0 = centro). Filtra só estações dentro do círculo.
+    const hasSelector = selectorOffsetPx != null;
 
     let closestRadio: RadioStation | null = null;
     let closestPoint: THREE.Vector3 | null = null;
     let closestPoint3D: THREE.Vector3 | null = null;
+    let isUnderSelector = false;
 
-    const now = Date.now();
-    if (now - lastClosestCheckRef.current >= CLOSEST_RADIO_CHECK_MS && radioPoints.length > 0 && globeGroupRef.current) {
-      lastClosestCheckRef.current = now;
-      let minDistanceToCenter = Infinity;
-      const step = radioPoints.length > MAX_POINTS_TO_CHECK ? Math.ceil(radioPoints.length / MAX_POINTS_TO_CHECK) : 1;
-      const vec = new THREE.Vector3();
-      const worldPos = new THREE.Vector3();
-      const projected = new THREE.Vector3();
+    if (hasSelector) {
+      const now = Date.now();
+      if (now - lastClosestCheckRef.current >= CLOSEST_RADIO_CHECK_MS && radioPoints.length > 0 && globeGroupRef.current) {
+        lastClosestCheckRef.current = now;
+        let minDistanceToCenter = Infinity;
+        const step = radioPoints.length > MAX_POINTS_TO_CHECK ? Math.ceil(radioPoints.length / MAX_POINTS_TO_CHECK) : 1;
+        const vec = new THREE.Vector3();
+        const worldPos = new THREE.Vector3();
+        const projected = new THREE.Vector3();
 
-      for (let i = 0; i < radioPoints.length; i += step) {
-        const point = radioPoints[i];
-        vec.set(point.position[0], point.position[1], point.position[2]);
-        worldPos.copy(vec).applyMatrix4(globeGroupRef.current.matrixWorld);
-        if (worldPos.dot(camera.position) <= 0) continue;
-        projected.copy(worldPos).project(camera);
-        if (projected.z <= -1 || projected.z >= 1) continue;
+        for (let i = 0; i < radioPoints.length; i += step) {
+          const point = radioPoints[i];
+          vec.set(point.position[0], point.position[1], point.position[2]);
+          worldPos.copy(vec).applyMatrix4(globeGroupRef.current.matrixWorld);
+          if (worldPos.dot(camera.position) <= 0) continue;
+          projected.copy(worldPos).project(camera);
+          if (projected.z <= -1 || projected.z >= 1) continue;
 
-        const distanceToCenter = Math.hypot(projected.x - screenCenterNDC.x, projected.y - screenCenterNDC.y);
-        // Filtragem só quando existe estação dentro do círculo de seleção; fora dele não há candidata
-        if (distanceToCenter < SNAP_THRESHOLD_NDC && distanceToCenter < minDistanceToCenter) {
-          minDistanceToCenter = distanceToCenter;
-          closestRadio = point.radio;
-          closestPoint = projected.clone();
-          closestPoint3D = vec.clone();
+          const distanceToCenter = Math.hypot(projected.x - selectorCenterNDC.x, projected.y - selectorCenterNDC.y);
+          // Só estações centralizadas no círculo: dentro do raio do seletor, a mais próxima do centro é a selecionada.
+          if (distanceToCenter <= selectorRadiusNDC && distanceToCenter < minDistanceToCenter) {
+            minDistanceToCenter = distanceToCenter;
+            closestRadio = point.radio;
+            closestPoint = projected.clone();
+            closestPoint3D = vec.clone();
+          }
+        }
+        closestResultRef.current = closestRadio && closestPoint && closestPoint3D
+          ? { radio: closestRadio, projected: closestPoint, point3D: closestPoint3D }
+          : null;
+      } else {
+        const cached = closestResultRef.current;
+        if (cached) {
+          closestRadio = cached.radio;
+          closestPoint = cached.projected;
+          closestPoint3D = cached.point3D;
         }
       }
-      closestResultRef.current = closestRadio && closestPoint && closestPoint3D
-        ? { radio: closestRadio, projected: closestPoint, point3D: closestPoint3D }
-        : null;
-    } else {
-      const cached = closestResultRef.current;
-      if (cached) {
-        closestRadio = cached.radio;
-        closestPoint = cached.projected;
-        closestPoint3D = cached.point3D;
+
+      // Decidir “sob o seletor” pela posição atual do pin na tela (re-projetar), dentro do raio do círculo.
+      let distanceToCenter = Infinity;
+      if (closestPoint3D && globeGroupRef.current && camera) {
+        const w = new THREE.Vector3();
+        const p = new THREE.Vector3();
+        w.copy(closestPoint3D).applyMatrix4(globeGroupRef.current.matrixWorld);
+        if (w.dot(camera.position) > 0) {
+          p.copy(w).project(camera);
+          if (p.z > -1 && p.z < 1) {
+            distanceToCenter = Math.hypot(p.x - selectorCenterNDC.x, p.y - selectorCenterNDC.y);
+          }
+        }
       }
+      isUnderSelector = closestRadio !== null && distanceToCenter <= selectorRadiusNDC;
+
+      if (!isUnderSelector) {
+        targetRotationRef.current = null;
+      }
+      // Seletor só filtra a rádio mais ao centro como selecionada; nenhuma rotação automática do globo.
+    } else {
+      targetRotationRef.current = null;
     }
 
-    // Pin sob o seletor = dentro do círculo. Só há seleção quando o usuário deixa um pin sob o seletor.
-    const distanceToCenter = closestPoint ? Math.hypot(closestPoint.x, closestPoint.y) : Infinity;
-    const isUnderSelector = distanceToCenter < SNAP_THRESHOLD_NDC;
-
-    const cand = selectCandidateRef.current;
-    if (isUnderSelector && closestRadio !== null) {
-      if (cand.id !== closestRadio.id) {
-        cand.id = closestRadio.id;
-        cand.since = now;
-      }
-    } else {
-      cand.id = null;
-      cand.since = 0;
-    }
-    const stableForMs = cand.id ? now - cand.since : 0;
-    const shouldSelect = isUnderSelector && closestRadio !== null && cand.id === closestRadio.id && stableForMs >= SELECT_STABLE_MS;
-
-    // Rotação automática removida: o usuário gira o globo livremente; só aplicamos rotação ao clicar em um pin (handlePinClick).
     if (globeGroupRef.current && camera && targetRotationRef.current) {
-      const cameraDistance = camera.position.length();
       const normalizedDistance = Math.max(0, Math.min(1, (cameraDistance - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE)));
       const baseLerpFactor = 0.09;
-      const lerpMultiplier = 0.35 + (normalizedDistance * 0.65);
-      const lerpFactor = baseLerpFactor * lerpMultiplier;
+      const lerpFactor = baseLerpFactor * (0.35 + (normalizedDistance * 0.65));
 
       currentRotationRef.current.x += (targetRotationRef.current.x - currentRotationRef.current.x) * lerpFactor;
       currentRotationRef.current.y += (targetRotationRef.current.y - currentRotationRef.current.y) * lerpFactor;
@@ -529,17 +547,35 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
       globeGroupRef.current.rotation.y = currentRotationRef.current.y;
     }
 
-    // Seleção só quando o usuário deixa o pin da estação sob o seletor por SELECT_STABLE_MS
-    if (shouldSelect && closestRadio !== null) {
+    // Preview: enquanto move o círculo, reporta a estação mais próxima do centro (para mostrar no painel).
+    if (isUnderSelector && closestRadio !== null) {
       if (closestRadio.id !== lastSelectedRef.current) {
         lastSelectedRef.current = closestRadio.id;
         onRadioSelect(closestRadio);
       }
-      if (onSelectionPosition) onSelectionPosition({ x: size.width / 2, y: size.height / 2 });
-    } else if (!isUnderSelector) {
-      lastSelectedRef.current = null;
-      onRadioSelect(null);
-      if (onSelectionPosition) onSelectionPosition(null);
+      const cx = size.width / 2 + (selectorOffsetPx?.x ?? 0);
+      const cy = size.height / 2 + (selectorOffsetPx?.y ?? 0);
+      if (onSelectionPosition) onSelectionPosition({ x: cx, y: cy });
+    }
+    // Seleção só ao soltar (commit): não chama onRadioSelect(null) durante o arrasto.
+    if (commitSelectionRequested && onSelectionCommitProcessed) {
+      if (closestRadio !== null) {
+        lastSelectedRef.current = closestRadio.id;
+        onRadioSelect(closestRadio);
+      } else {
+        lastSelectedRef.current = null;
+        onRadioSelect(null);
+      }
+      if (onSelectionPosition) {
+        if (closestRadio !== null) {
+          const cx = size.width / 2 + (selectorOffsetPx?.x ?? 0);
+          const cy = size.height / 2 + (selectorOffsetPx?.y ?? 0);
+          onSelectionPosition({ x: cx, y: cy });
+        } else {
+          onSelectionPosition(null);
+        }
+      }
+      onSelectionCommitProcessed();
     }
   });
 
@@ -791,24 +827,33 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
   });
 
   // Centralizar no local do usuário quando centerLocation mudar
+  // Usa a mesma convenção de coordenadas dos pins: (lat,lng) → posição no globo → rotação que leva esse ponto à frente da câmera
   useEffect(() => {
-    if (centerLocation && globeGroupRef.current) {
-      // Converter lat/lng para rotação do globo
-      // Para centralizar um ponto no globo, precisamos rotacioná-lo
-      // Latitude: -90 a 90 -> rotação X: pi/2 a -pi/2 (invertido)
-      // Longitude: -180 a 180 -> rotação Y: -pi a pi (invertido)
-      const targetX = (-centerLocation.latitude * Math.PI) / 180;
-      const targetY = (-centerLocation.longitude * Math.PI) / 180;
-      
-      // Animar suavemente para a posição alvo
-      targetRotationRef.current = { x: targetX, y: targetY };
-      currentRotationRef.current = { x: targetX, y: targetY };
-      
-      if (globeGroupRef.current) {
-        globeGroupRef.current.rotation.x = targetX;
-        globeGroupRef.current.rotation.y = targetY;
-      }
-    }
+    if (!centerLocation || !globeGroupRef.current) return;
+    const { latitude, longitude } = centerLocation;
+    // Mesma fórmula dos radioPoints: posição do ponto (lat,lng) na superfície do globo
+    const phi = (90 - latitude) * (Math.PI / 180);
+    const theta = (longitude + 180) * (Math.PI / 180);
+    const x = -(Math.sin(phi) * Math.cos(theta)) * GLOBE_RADIUS;
+    const z = Math.sin(phi) * Math.sin(theta) * GLOBE_RADIUS;
+    const y = Math.cos(phi) * GLOBE_RADIUS;
+    const pinVector = new THREE.Vector3(x, y, z);
+    // Direção “à frente” da câmera (câmera em (0,0,2.5) → direção (0,0,1))
+    const targetVector = new THREE.Vector3(0, 0, 1);
+    const pinSpherical = new THREE.Spherical();
+    pinSpherical.setFromVector3(pinVector);
+    const targetSpherical = new THREE.Spherical();
+    targetSpherical.setFromVector3(targetVector);
+    let deltaTheta = targetSpherical.theta - pinSpherical.theta;
+    if (deltaTheta > Math.PI) deltaTheta -= 2 * Math.PI;
+    if (deltaTheta < -Math.PI) deltaTheta += 2 * Math.PI;
+    const deltaPhi = targetSpherical.phi - pinSpherical.phi;
+    const targetX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, deltaPhi));
+    const targetY = deltaTheta;
+    targetRotationRef.current = { x: targetX, y: targetY };
+    currentRotationRef.current = { x: targetX, y: targetY };
+    globeGroupRef.current.rotation.x = targetX;
+    globeGroupRef.current.rotation.y = targetY;
   }, [centerLocation]);
 
   return (
@@ -859,7 +904,16 @@ function Globe({ radios, onRadioSelect, selectedRadio, onSelectionPosition, cent
   );
 }
 
-export default function GlobeView({ radios, onRadioSelect, selectedRadio, onSelectionPosition, centerLocation }: GlobeViewProps) {
+export default function GlobeView({
+  radios,
+  onRadioSelect,
+  selectedRadio,
+  onSelectionPosition,
+  centerLocation,
+  selectorOffsetPx,
+  commitSelectionRequested,
+  onSelectionCommitProcessed,
+}: GlobeViewProps) {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: 'transparent' }}>
       <Canvas
@@ -867,12 +921,15 @@ export default function GlobeView({ radios, onRadioSelect, selectedRadio, onSele
         style={{ width: '100%', height: '100%' }}
         shadows={false}
       >
-        <Globe 
-          radios={radios} 
-          onRadioSelect={onRadioSelect} 
-          selectedRadio={selectedRadio} 
+        <Globe
+          radios={radios}
+          onRadioSelect={onRadioSelect}
+          selectedRadio={selectedRadio}
           onSelectionPosition={onSelectionPosition}
           centerLocation={centerLocation}
+          selectorOffsetPx={selectorOffsetPx}
+          commitSelectionRequested={commitSelectionRequested}
+          onSelectionCommitProcessed={onSelectionCommitProcessed}
         />
       </Canvas>
     </div>
