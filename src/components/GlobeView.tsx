@@ -67,82 +67,14 @@ interface GlobeViewProps {
   onSelectionCommitProcessed?: () => void;
 }
 
-interface RadioPointProps {
-  position: [number, number, number];
-  radio: RadioStation;
-  onPress: (radio: RadioStation) => void;
-  isSelected?: boolean;
-  camera?: THREE.Camera;
-}
-
-function RadioPoint({ position, radio, onPress, isSelected, camera, onPinClick }: RadioPointProps & { onPinClick?: (position: [number, number, number]) => void }) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const [hovered, setHovered] = useState(false);
-  
-  const handleClick = () => {
-    onPress(radio);
-    // Notificar que o pin foi clicado para rotacionar o globo
-    if (onPinClick) {
-      onPinClick(position);
-    }
-  };
-
-  useFrame(() => {
-    if (!meshRef.current) return;
-    const m = meshRef.current;
-    // Disco tangente ao globo: normal do círculo = direção do centro → posição
-    m.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 0, 1),
-      m.position.clone().normalize()
-    );
-    if (camera) {
-      const distance = camera.position.distanceTo(m.position);
-      const baseSize = 0.025;
-      const minScale = 0.2;
-      const maxScale = 0.3;
-      const scale = Math.max(minScale, Math.min(maxScale, baseSize / distance));
-      m.scale.setScalar(hovered ? scale * 1.2 : scale);
-    } else {
-      const defaultScale = 0.3;
-      m.scale.setScalar(hovered ? defaultScale * 1.2 : defaultScale);
-    }
-  });
-
-  const baseRadius = 0.01;
-
-  return (
-    <mesh
-      ref={meshRef}
-      position={position}
-      castShadow={false}
-      receiveShadow={false}
-      onClick={(e) => {
-        e.stopPropagation();
-        onPress(radio);
-        if (onPinClick) onPinClick(position);
-      }}
-      onPointerOver={() => setHovered(true)}
-      onPointerOut={() => setHovered(false)}
-    >
-      <circleGeometry args={[baseRadius, 16]} />
-      <meshBasicMaterial
-        color={isSelected || hovered ? '#f87171' : '#dc2626'}
-        side={THREE.DoubleSide}
-        depthWrite={true}
-        depthTest={true}
-      />
-    </mesh>
-  );
-}
-
 // Pins circulares (discos) sobre o globo; sem sombra/halo: MeshBasicMaterial + renderOrder
-function InstancedRadioPoints({ 
-  radioPoints, 
+function InstancedRadioPoints({
+  radioPoints,
   selectedRadio,
   camera,
   onRadioSelect,
   onPinClick
-}: { 
+}: {
   radioPoints: Array<{ position: [number, number, number]; radio: RadioStation }>;
   selectedRadio?: RadioStation | null;
   camera: THREE.Camera | null;
@@ -156,21 +88,21 @@ function InstancedRadioPoints({
   const upZ = useMemo(() => new THREE.Vector3(0, 0, 1), []);
   const normal = useMemo(() => new THREE.Vector3(), []);
   const scaleVec = useMemo(() => new THREE.Vector3(), []);
-  
+
   // Disco circular tangente ao globo
   const geometry = useMemo(() => new THREE.CircleGeometry(0.01, 16), []);
-  
+
   // Vermelho, sem iluminação, sem polygonOffset; renderOrder evita artefato de profundidade
-  const material = useMemo(() => 
+  const material = useMemo(() =>
     new THREE.MeshBasicMaterial({
       color: new THREE.Color('#dc2626'),
       side: THREE.DoubleSide,
       depthWrite: true,
       depthTest: true,
-    }), 
+    }),
     []
   );
-  
+
   const visibleInstancesRef = useRef<Array<{ index: number; point: { position: [number, number, number]; radio: RadioStation } }>>([]);
   const lastUpdateRef = useRef(0);
   const THROTTLE_MS = 200;
@@ -234,7 +166,7 @@ function InstancedRadioPoints({
 
     instancedMeshRef.current.instanceMatrix.needsUpdate = true;
   });
-  
+
   // Capacidade mínima para 16k+ rádios; evita buffer pequeno quando a lista cresce após o carregamento
   const instanceCount = Math.max(radioPoints.length, 40000);
 
@@ -250,88 +182,15 @@ function InstancedRadioPoints({
   );
 }
 
-// Componente para lista de pontos com LOD (mantido para compatibilidade)
-function RadioPointsList({ 
-  radioPoints, 
-  selectedRadio, 
-  onRadioSelect, 
-  camera,
-  onPinClick
-}: { 
-  radioPoints: Array<{ position: [number, number, number]; radio: RadioStation }>;
-  selectedRadio?: RadioStation | null;
-  onRadioSelect: (radio: RadioStation) => void;
-  camera: THREE.Camera | null;
-  onPinClick?: (position: [number, number, number]) => void;
-}) {
-  // Inicializar com TODAS as estações visíveis
-  const initialVisible = useMemo(() => {
-    const visible = new Set<string>();
-    radioPoints.forEach((point) => {
-      // Mostrar todas as estações, não apenas as principais
-      visible.add(point.radio.id);
-    });
-    return visible;
-  }, [radioPoints]);
-  
-  const [visiblePoints, setVisiblePoints] = useState<Set<string>>(initialVisible);
-
-  // Usar useRef para throttling de atualizações
-  const lastUpdateRef = useRef(0);
-  const THROTTLE_MS = 200; // Atualizar no máximo a cada 200ms (otimizado para performance)
-  
-  useFrame((state, delta) => {
-    const now = Date.now();
-    // Throttle para reduzir atualizações
-    if (now - lastUpdateRef.current < THROTTLE_MS) return;
-    lastUpdateRef.current = now;
-    
-    const newVisible = new Set<string>();
-    
-    if (camera) {
-      const cameraDistance = camera.position.length();
-      
-      // Mostrar TODOS os pins sempre - sem limite baseado em zoom
-      // Os pins devem permanecer visíveis em qualquer nível de zoom
-      radioPoints.forEach((point) => {
-        newVisible.add(point.radio.id);
-      });
-    } else {
-      // Se não há câmera, mostrar todas as estações
-      radioPoints.forEach((point) => {
-        newVisible.add(point.radio.id);
-      });
-    }
-    
-    // Só atualizar se houver mudanças significativas (mais de 50 pins de diferença)
-    const sizeDiff = Math.abs(newVisible.size - visiblePoints.size);
-    if (sizeDiff > 50 || 
-        Array.from(newVisible).slice(0, 100).some(id => !visiblePoints.has(id))) {
-      setVisiblePoints(newVisible);
-    }
-  });
-
-  return (
-    <>
-      {radioPoints.map((point) => {
-        if (!visiblePoints.has(point.radio.id)) return null;
-        
-        const isSelected = selectedRadio?.id === point.radio.id;
-        return (
-          <RadioPoint
-            key={point.radio.id}
-            position={point.position}
-            radio={point.radio}
-            onPress={onRadioSelect}
-            isSelected={isSelected}
-            camera={camera || undefined}
-            onPinClick={onPinClick}
-          />
-        );
-      })}
-    </>
-  );
+interface RadioPointProps {
+  position: [number, number, number];
+  radio: RadioStation;
+  onPress: (radio: RadioStation) => void;
+  isSelected?: boolean;
+  camera?: THREE.Camera;
 }
+
+
 
 // Throttle para busca da rádio mais próxima do centro (evita perda de contexto WebGL com muitos pontos)
 const CLOSEST_RADIO_CHECK_MS = 120;
@@ -362,56 +221,56 @@ function Globe({
   // Função para rotacionar o globo e centralizar um pin clicado
   const handlePinClick = useCallback((pinPosition: [number, number, number]) => {
     if (!cameraRef.current || !globeGroupRef.current) return;
-    
+
     // Criar vetor da posição do pin (em coordenadas do globo, sem rotação)
     const pinVector = new THREE.Vector3(...pinPosition);
-    
+
     // A direção desejada é na frente da câmera (direção Z negativa no espaço da câmera)
     // A câmera olha para o centro (0,0,0), então queremos que o pin fique na direção oposta à câmera
     const cameraPos = cameraRef.current.position.clone();
     const cameraDirection = cameraPos.normalize().negate(); // Direção da câmera para o centro, invertida
-    
+
     // Converter posição do pin para coordenadas esféricas (theta = longitude, phi = latitude)
     const pinSpherical = new THREE.Spherical();
     pinSpherical.setFromVector3(pinVector);
-    
+
     // Converter direção alvo (onde queremos que o pin fique) para coordenadas esféricas
     const targetSpherical = new THREE.Spherical();
     targetSpherical.setFromVector3(cameraDirection);
-    
+
     // Calcular diferença de ângulos
     // Theta (azimute/longitude) - rotação horizontal
     let deltaTheta = targetSpherical.theta - pinSpherical.theta;
     // Normalizar para o intervalo [-PI, PI]
     if (deltaTheta > Math.PI) deltaTheta -= 2 * Math.PI;
     if (deltaTheta < -Math.PI) deltaTheta += 2 * Math.PI;
-    
+
     // Phi (elevação/latitude) - rotação vertical
     let deltaPhi = targetSpherical.phi - pinSpherical.phi;
-    
+
     // Aplicar rotação atual do globo
     const currentRotX = globeGroupRef.current.rotation.x;
     const currentRotY = globeGroupRef.current.rotation.y;
-    
+
     // Calcular nova rotação alvo
     // Rotação Y (azimute) - rotação horizontal
     const newRotY = currentRotY + deltaTheta;
     // Rotação X (elevação) - rotação vertical (limitada para não virar o globo de cabeça para baixo)
     const newRotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, currentRotX + deltaPhi));
-    
+
     // Definir rotação alvo para animação suave
     targetRotationRef.current = { x: newRotX, y: newRotY };
   }, []);
 
   const radioPoints = useMemo<Array<{ position: [number, number, number]; radio: RadioStation }>>(() => {
     // Filtrar estações com coordenadas válidas (NaN ou fora dos limites geográficos)
-    const validRadios = radios.filter(radio => 
-      !isNaN(radio.latitude) && 
+    const validRadios = radios.filter(radio =>
+      !isNaN(radio.latitude) &&
       !isNaN(radio.longitude) &&
       radio.latitude >= -90 && radio.latitude <= 90 &&
       radio.longitude >= -180 && radio.longitude <= 180
     );
-    
+
     const points = validRadios.map((radio) => {
       const phi = (90 - radio.latitude) * (Math.PI / 180);
       const theta = (radio.longitude + 180) * (Math.PI / 180);
@@ -423,7 +282,7 @@ function Globe({
       // Pins sobre a superfície do globo na região de origem (mínimo offset para evitar “órbita”)
       const pinOffset = 0.003; // Quase na superfície: fica acima do país/cidade, não em órbita
       const pinDistance = GLOBE_RADIUS + pinOffset;
-      
+
       return {
         position: [x * pinDistance, y * pinDistance, z * pinDistance] as [number, number, number],
         radio
@@ -600,24 +459,24 @@ function Globe({
     statesByStroke?: Partial<Record<StrokeLevel, THREE.Texture>>;
     combined?: { lod: 'countries' | 'states'; strokeLevel: StrokeLevel; texture: THREE.Texture };
   }>({});
-  
+
   // Gerar textura de países com espessura de contorno conforme zoom (strokeLevel)
   const generateCountriesTexture = useCallback(async (strokeLevel: StrokeLevel = 'wide'): Promise<THREE.Texture | null> => {
     if (!textureCacheRef.current.countriesByStroke) textureCacheRef.current.countriesByStroke = {};
     if (textureCacheRef.current.countriesByStroke[strokeLevel]) {
       return textureCacheRef.current.countriesByStroke[strokeLevel]!;
     }
-    
+
     try {
       const d3Geo = await import('d3-geo');
       const topojson = await import('topojson-client') as any;
-      
+
       const worldTopo = await fetch('https://unpkg.com/world-atlas@1/world/50m.json')
         .then(response => {
           if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
           return response.json();
         });
-      
+
       const countries = topojson.feature(worldTopo as any, worldTopo.objects.countries as any);
 
       const { w, h } = textureSizeForStroke(strokeLevel);
@@ -634,21 +493,21 @@ function Globe({
       const projection = d3Geo.geoEquirectangular()
         .scale(canvas.width / (2 * Math.PI))
         .translate([canvas.width / 2, canvas.height / 2]);
-      
+
       const path = d3Geo.geoPath().projection(projection).context(ctx);
       const lineWidth = STROKE_LINE_WIDTH[strokeLevel];
-      
+
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = lineWidth;
-      
+
       countries.features.forEach((feature: any) => {
         ctx.beginPath();
         path(feature);
         ctx.fill();
         ctx.stroke();
       });
-      
+
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
       textureCacheRef.current.countriesByStroke[strokeLevel] = texture;
@@ -659,7 +518,7 @@ function Globe({
       return null;
     }
   }, []);
-  
+
   // Gerar textura de estados/províncias (admin1) com espessura de contorno conforme zoom (strokeLevel)
   const generateStatesTexture = useCallback(async (strokeLevel: StrokeLevel = 'wide'): Promise<THREE.Texture | null> => {
     if (!textureCacheRef.current.statesByStroke) textureCacheRef.current.statesByStroke = {};
@@ -722,7 +581,7 @@ function Globe({
       return null;
     }
   }, []);
-  
+
   // Sem agrupamento por cidade: cada estação é exibida individualmente como pin 3D (InstancedRadioPoints).
   // A textura do globo usa apenas países e estados (contornos); nenhuma camada de “cidades” agrupadas.
 
@@ -763,7 +622,7 @@ function Globe({
     setCombinedTexture(combined);
     log(`Textura combinada gerada para LOD: ${lod}, stroke: ${strokeLevel}`);
   }, [generateCountriesTexture, generateStatesTexture]);
-  
+
   // Carregar textura inicial (países com contorno "wide")
   useEffect(() => {
     const createBasicTexture = () => {
@@ -778,10 +637,10 @@ function Globe({
       texture.needsUpdate = true;
       return texture;
     };
-    
+
     const basicTexture = createBasicTexture();
     if (basicTexture) setWorldMapTexture(basicTexture);
-    
+
     generateCountriesTexture('wide').then(texture => {
       if (texture) {
         setWorldMapTexture(texture);
@@ -789,24 +648,24 @@ function Globe({
       }
     });
   }, [generateCountriesTexture, combineTextures]);
-  
+
   // Atualizar LOD e espessura dos contornos (strokeLevel) conforme zoom
   const lastLODUpdateRef = useRef(0);
   const lastStrokeLevelRef = useRef<StrokeLevel>('wide');
   const LOD_UPDATE_THROTTLE = 500;
-  
+
   useFrame(({ camera }) => {
     const now = Date.now();
     if (now - lastLODUpdateRef.current < LOD_UPDATE_THROTTLE) return;
-    
+
     const cameraDistance = camera.position.length();
-    
+
     // LOD: países só, ou países + estados; estações são sempre pins individuais (sem agrupamento por cidade)
     let newLOD: 'countries' | 'states' = 'countries';
     if (cameraDistance < LOD_STATES_THRESHOLD) {
       newLOD = 'states';
     }
-    
+
     const newStrokeLevel: StrokeLevel = cameraDistance < STROKE_ZOOM_EXTRA_FINE
       ? 'extra_fine'
       : cameraDistance < STROKE_ZOOM_FINE
@@ -814,10 +673,10 @@ function Globe({
         : cameraDistance < STROKE_ZOOM_MEDIUM
           ? 'medium'
           : 'wide';
-    
+
     const lodChanged = newLOD !== geographicLOD;
     const strokeChanged = newStrokeLevel !== lastStrokeLevelRef.current;
-    
+
     if (lodChanged || strokeChanged) {
       lastLODUpdateRef.current = now;
       lastStrokeLevelRef.current = newStrokeLevel;
@@ -872,7 +731,7 @@ function Globe({
 
 
         {/* Pontos das rádios - renderização otimizada com InstancedMesh */}
-        <InstancedRadioPoints 
+        <InstancedRadioPoints
           radioPoints={radioPoints}
           selectedRadio={selectedRadio}
           camera={cameraRef.current}

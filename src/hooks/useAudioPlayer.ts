@@ -36,7 +36,9 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.preload = 'none';
-      audioRef.current.crossOrigin = 'anonymous';
+      // Removido crossOrigin = 'anonymous' para permitir tocar streams sem CORS habilitado
+      // Isso conserta o erro "Format not supported" em muitas estações
+      // audioRef.current.crossOrigin = 'anonymous';
 
       // Função para parsear StreamTitle no formato "Artista - Título" ou "Título"
       const parseStreamTitle = (streamTitle: string) => {
@@ -44,13 +46,13 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
           setNowPlaying(null);
           return;
         }
-        
+
         // Formato comum: "Artista - Título" ou "Artista - Título - Álbum"
         // Também pode ser apenas "Título" ou "Artista: Título"
         const separators = [' - ', ' – ', ' — ', ': ', ' | '];
         let artist = '';
         let title = streamTitle.trim();
-        
+
         for (const sep of separators) {
           const parts = streamTitle.split(sep);
           if (parts.length >= 2) {
@@ -65,23 +67,23 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
             break;
           }
         }
-        
+
         // Se não encontrou separador, tratar tudo como título
         if (!artist) {
           artist = '';
           title = streamTitle.trim();
         }
-        
+
         setNowPlaying({ artist, title });
       };
-      
+
       // Função para verificar metadados disponíveis
       const checkMetadata = () => {
         if (!audioRef.current) return;
-        
+
         try {
           const audio = audioRef.current as any;
-          
+
           // Método 1: Firefox expõe metadados através de mozGetMetadata()
           if (typeof audio.mozGetMetadata === 'function') {
             try {
@@ -94,13 +96,13 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
               // Ignorar erros
             }
           }
-          
+
           // Método 2: Tentar ler de propriedade title se disponível
           if (audio.title && audio.title !== audio.src && !audio.title.startsWith('http')) {
             parseStreamTitle(audio.title);
             return;
           }
-          
+
           // Método 3: Tentar acessar metadados através de eventos customizados
           // Alguns navegadores expõem metadados através de eventos
           // (Não há API padrão, então dependemos de recursos específicos do navegador)
@@ -108,16 +110,16 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
           // Ignorar erros ao tentar acessar metadados
         }
       };
-      
+
       // Interval para verificar metadados periodicamente
       let metadataInterval: NodeJS.Timeout | null = null;
-      
+
       // Event listeners
       audioRef.current.addEventListener('loadstart', () => {
         setIsLoading(true);
         setError(null);
         setNowPlaying(null); // Limpar metadados anteriores
-        
+
         // Tentar buscar metadados de endpoint JSON da estação (Icecast/Shoutcast)
         if (audioRef.current && audioRef.current.src && audioRef.current.src !== '') {
           fetchStationMetadata(audioRef.current.src, parseStreamTitle).catch(() => {
@@ -180,7 +182,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
           if (audioError.code === MediaError.MEDIA_ERR_ABORTED) {
             return; // Não definir erro para abortos (mudanças normais)
           }
-          
+
           let errorMessage = 'Erro ao carregar o stream de rádio';
           switch (audioError.code) {
             case MediaError.MEDIA_ERR_NETWORK:
@@ -317,7 +319,7 @@ async function fetchStationMetadata(
       // Se não for URL válida, não tentar buscar metadados
       return;
     }
-    
+
     // Endpoints comuns para metadados de estações de rádio
     const metadataEndpoints = [
       `${baseUrl}/status-json.xsl`, // Icecast
@@ -325,13 +327,13 @@ async function fetchStationMetadata(
       `${baseUrl}/7.html`, // Shoutcast (precisa parsing HTML)
       `${baseUrl}/stats?json=1`, // Alternativa
     ];
-    
+
     // Tentar buscar de cada endpoint (paralelo, mas parar no primeiro sucesso)
     for (const endpoint of metadataEndpoints) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
+
         const response = await fetch(endpoint, {
           method: 'GET',
           headers: {
@@ -339,18 +341,18 @@ async function fetchStationMetadata(
           },
           signal: controller.signal,
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (response.ok) {
           const contentType = response.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
             const data = await response.json();
-            
+
             // Icecast formato
             if (data.icestats?.source) {
-              const source = Array.isArray(data.icestats.source) 
-                ? data.icestats.source[0] 
+              const source = Array.isArray(data.icestats.source)
+                ? data.icestats.source[0]
                 : data.icestats.source;
               if (source?.yp_currently_playing || source?.server_name) {
                 const title = source.yp_currently_playing || source.server_description || '';
@@ -360,7 +362,7 @@ async function fetchStationMetadata(
                 }
               }
             }
-            
+
             // Outros formatos JSON
             if (data.nowplaying || data.current_track) {
               const title = data.nowplaying || data.current_track || '';
@@ -369,7 +371,7 @@ async function fetchStationMetadata(
                 return; // Sucesso, parar
               }
             }
-            
+
             // Shoutcast formato alternativo
             if (data.ServerStatus?.StreamStatus) {
               const streamStatus = data.ServerStatus.StreamStatus;

@@ -1,4 +1,5 @@
 import { RadioStation } from '../data/radios';
+import { COUNTRY_CENTERS } from '../data/countryCenters';
 // import { searchCity } from './whosOnFirstService'; // Desabilitado: Nominatim tem CORS e rate limiting
 
 // Helper para logs apenas em desenvolvimento
@@ -193,81 +194,16 @@ export async function getCountries(): Promise<Array<{ name: string; stationcount
 /**
  * Transforma dados da API Radio Browser para o formato RadioStation
  */
+
+
 /**
- * Transforma uma estação da API Radio Browser para o formato interno
- * Usa Who's On First para geocodificação precisa quando a API não fornece coordenadas
+ * Wrapper Async para compatibilidade
  */
 export async function transformToRadioStationAsync(
   apiStation: RadioBrowserStation,
   index: number
 ): Promise<RadioStation> {
-  // Tentar obter coordenadas da API ou geocodificar a cidade
-  let latitude = 0;
-  let longitude = 0;
-
-  if (apiStation.geo_lat && apiStation.geo_long) {
-    const lat = parseFloat(apiStation.geo_lat);
-    const lng = parseFloat(apiStation.geo_long);
-    // Validar se as coordenadas são válidas
-    if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-      latitude = lat;
-      longitude = lng;
-    }
-  }
-  
-  // Se não tiver coordenadas válidas, tentar geocodificar usando Who's On First
-  // NOTA: Nominatim tem CORS e rate limiting, então por enquanto desabilitado
-  // Em produção, isso deveria usar um proxy server-side ou cache pré-populado
-  if (latitude === 0 && longitude === 0) {
-    const countryCode = apiStation.countrycode || '';
-    // Por enquanto, usar apenas centro do país como fallback
-    // TODO: Implementar geocodificação via proxy server-side ou cache local
-    const countryCoords = getCountryCenter(countryCode);
-    latitude = countryCoords.lat;
-    longitude = countryCoords.lng;
-  }
-  
-  // Se ainda assim as coordenadas forem (0,0), usar centro do país
-  if (latitude === 0 && longitude === 0 && apiStation.countrycode) {
-    const countryCoords = getCountryCenter(apiStation.countrycode);
-    if (countryCoords.lat !== 0 || countryCoords.lng !== 0) {
-      latitude = countryCoords.lat;
-      longitude = countryCoords.lng;
-    } else {
-      // Último fallback: distribuição baseada no hash do nome
-      const hash = (apiStation.name || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      latitude = (hash % 180) - 90; // Entre -90 e 90
-      longitude = ((hash * 7) % 360) - 180; // Entre -180 e 180
-    }
-  }
-  
-  // Extrair frequência das tags ou usar padrão
-  let frequency = 'FM';
-  const freqMatch = apiStation.tags?.match(/(\d+\.?\d*)\s*(FM|AM|MHz)/i);
-  if (freqMatch) {
-    frequency = `${freqMatch[1]} ${freqMatch[2].toUpperCase()}`;
-  }
-
-  // Determinar se é estação major (baseado em votos, bitrate e popularidade)
-  // Estações principais: mais votos OU bitrate alto E verificadas
-  const voteThreshold = 50; // Reduzido para mais estações principais
-  const bitrateThreshold = 96; // Qualidade razoável
-  const isMajor =
-    (apiStation.votes >= voteThreshold || apiStation.bitrate >= bitrateThreshold) &&
-    apiStation.lastcheckok === 1;
-
-  return {
-    id: apiStation.stationuuid || `radio-${index}`,
-    name: apiStation.name || 'Unknown Station',
-    city: apiStation.state || apiStation.country || 'Unknown',
-    country: apiStation.country || 'Unknown',
-    frequency: frequency,
-    latitude: latitude,
-    longitude: longitude,
-    url: apiStation.url_resolved || apiStation.url,
-    logo: apiStation.favicon || undefined,
-    isMajor: isMajor,
-  };
+  return transformToRadioStation(apiStation, index);
 }
 
 /**
@@ -542,148 +478,24 @@ function normalizeCountryCode(countryCode?: string, countryName?: string): strin
  * Coordenadas aproximadas do centro de países comuns
  * (Fallback caso a API não forneça coordenadas)
  */
+/**
+ * Coordenadas aproximadas do centro de países comuns
+ * (Fallback caso a API não forneça coordenadas)
+ */
 function getCountryCenter(countryCode: string): { lat: number; lng: number } {
-  const countryCenters: Record<string, { lat: number; lng: number }> = {
-    BR: { lat: -14.235, lng: -51.9253 }, // Brasil
-    US: { lat: 39.8283, lng: -98.5795 }, // Estados Unidos
-    GB: { lat: 55.3781, lng: -3.436 }, // Reino Unido
-    FR: { lat: 46.2276, lng: 2.2137 }, // França
-    DE: { lat: 51.1657, lng: 10.4515 }, // Alemanha
-    IT: { lat: 41.8719, lng: 12.5674 }, // Itália
-    ES: { lat: 40.4637, lng: -3.7492 }, // Espanha
-    CA: { lat: 56.1304, lng: -106.3468 }, // Canadá
-    MX: { lat: 23.6345, lng: -102.5528 }, // México
-    AR: { lat: -38.4161, lng: -63.6167 }, // Argentina
-    PT: { lat: 39.3999, lng: -8.2245 }, // Portugal
-    AU: { lat: -25.2744, lng: 133.7751 }, // Austrália
-    JP: { lat: 36.2048, lng: 138.2529 }, // Japão
-    CN: { lat: 35.8617, lng: 104.1954 }, // China
-    IN: { lat: 20.5937, lng: 78.9629 }, // Índia
-    RU: { lat: 61.524, lng: 105.3188 }, // Rússia
-    NL: { lat: 52.1326, lng: 5.2913 }, // Holanda
-    BE: { lat: 50.5039, lng: 4.4699 }, // Bélgica
-    CH: { lat: 46.8182, lng: 8.2275 }, // Suíça
-    AT: { lat: 47.5162, lng: 14.5501 }, // Áustria
-    PL: { lat: 51.9194, lng: 19.1451 }, // Polônia
-    SE: { lat: 60.1282, lng: 18.6435 }, // Suécia
-    NO: { lat: 60.4720, lng: 8.4689 }, // Noruega
-    DK: { lat: 56.2639, lng: 9.5018 }, // Dinamarca
-    FI: { lat: 61.9241, lng: 25.7482 }, // Finlândia
-    GR: { lat: 39.0742, lng: 21.8243 }, // Grécia
-    TR: { lat: 38.9637, lng: 35.2433 }, // Turquia
-    KR: { lat: 35.9078, lng: 127.7669 }, // Coreia do Sul
-    ZA: { lat: -30.5595, lng: 22.9375 }, // África do Sul
-    NZ: { lat: -40.9006, lng: 174.8860 }, // Nova Zelândia
-    CL: { lat: -35.6751, lng: -71.5430 }, // Chile
-    CO: { lat: 4.5709, lng: -74.2973 }, // Colômbia
-    PE: { lat: -9.1900, lng: -75.0152 }, // Peru
-    VE: { lat: 6.4238, lng: -66.5897 }, // Venezuela
-    EC: { lat: -1.8312, lng: -78.1834 }, // Equador
-    RO: { lat: 45.9432, lng: 24.9668 }, // Romênia
-    HU: { lat: 47.1625, lng: 19.5033 }, // Hungria
-    ID: { lat: -0.7893, lng: 113.9213 }, // Indonésia
-    PH: { lat: 12.8797, lng: 121.7740 }, // Filipinas
-    MY: { lat: 4.2105, lng: 101.9758 }, // Malásia
-    TH: { lat: 15.8700, lng: 100.9925 }, // Tailândia
-    VN: { lat: 14.0583, lng: 108.2772 }, // Vietnã
-    PK: { lat: 30.3753, lng: 69.3451 }, // Paquistão
-    BD: { lat: 23.6850, lng: 90.3563 }, // Bangladesh
-    LK: { lat: 7.8731, lng: 80.7718 }, // Sri Lanka
-    IL: { lat: 31.0461, lng: 34.8516 }, // Israel
-    SA: { lat: 23.8859, lng: 45.0792 }, // Arábia Saudita
-    AE: { lat: 23.4241, lng: 53.8478 }, // Emirados Árabes
-    EG: { lat: 26.8206, lng: 30.8025 }, // Egito
-    NG: { lat: 9.0820, lng: 8.6753 }, // Nigéria
-    KE: { lat: -0.0236, lng: 37.9062 }, // Quênia
-    GH: { lat: 7.9465, lng: -1.0232 }, // Gana
-    MA: { lat: 31.7917, lng: -7.0926 }, // Marrocos
-    TZ: { lat: -6.3690, lng: 34.8888 }, // Tanzânia
-    ET: { lat: 9.1450, lng: 40.4897 }, // Etiópia
-    SN: { lat: 14.7167, lng: -17.4677 }, // Senegal
-    BF: { lat: 12.2383, lng: -1.5616 }, // Burkina Faso
-    CI: { lat: 7.5400, lng: -5.5471 }, // Costa do Marfim
-    CM: { lat: 6.6111, lng: 20.9394 }, // Camarões
-    CG: { lat: -0.2280, lng: 15.8277 }, // Congo
-    UG: { lat: 1.3733, lng: 32.2903 }, // Uganda
-    UA: { lat: 48.3794, lng: 31.1656 }, // Ucrânia
-    CZ: { lat: 49.8175, lng: 15.4728 }, // República Tcheca
-    SK: { lat: 48.6690, lng: 19.6990 }, // Eslováquia
-    RS: { lat: 44.0165, lng: 21.0059 }, // Sérvia
-    HR: { lat: 45.1, lng: 15.2 }, // Croácia
-    BG: { lat: 42.7339, lng: 25.4858 }, // Bulgária
-    IE: { lat: 53.1424, lng: -7.6921 }, // Irlanda
-    TW: { lat: 23.6978, lng: 120.9605 }, // Taiwan
-    HK: { lat: 22.3193, lng: 114.1694 }, // Hong Kong
-    SG: { lat: 1.3521, lng: 103.8198 }, // Singapura
-    IR: { lat: 32.4279, lng: 53.6880 }, // Irã
-    IQ: { lat: 33.2232, lng: 43.6793 }, // Iraque
-    LB: { lat: 33.8547, lng: 35.8623 }, // Líbano
-    SY: { lat: 34.8021, lng: 38.9968 }, // Síria
-    DZ: { lat: 28.0339, lng: 1.6596 }, // Argélia
-    TN: { lat: 33.8869, lng: 9.5375 }, // Tunísia
-    LY: { lat: 26.3351, lng: 17.2283 }, // Líbia
-    BO: { lat: -16.2902, lng: -63.5887 }, // Bolívia
-    PY: { lat: -23.4425, lng: -58.4438 }, // Paraguai
-    UY: { lat: -32.5228, lng: -55.7658 }, // Uruguai
-    CR: { lat: 9.7489, lng: -83.7534 }, // Costa Rica
-    PA: { lat: 8.5380, lng: -80.7821 }, // Panamá
-    GT: { lat: 15.7835, lng: -90.2308 }, // Guatemala
-    HN: { lat: 15.2000, lng: -86.2419 }, // Honduras
-    SV: { lat: 13.7942, lng: -88.8965 }, // El Salvador
-    NI: { lat: 12.8654, lng: -85.2072 }, // Nicarágua
-    DO: { lat: 18.7357, lng: -70.1627 }, // República Dominicana
-    PR: { lat: 18.2208, lng: -66.5901 }, // Porto Rico
-    CU: { lat: 21.5218, lng: -77.7812 }, // Cuba
-    JM: { lat: 18.1096, lng: -77.2975 }, // Jamaica
-    TT: { lat: 10.6918, lng: -61.2225 }, // Trinidad e Tobago
-    CY: { lat: 35.1264, lng: 33.4299 }, // Chipre
-    MT: { lat: 35.9375, lng: 14.3754 }, // Malta
-    SI: { lat: 46.1512, lng: 14.9955 }, // Eslovênia
-    BA: { lat: 43.9159, lng: 17.6791 }, // Bósnia e Herzegovina
-    MK: { lat: 41.6086, lng: 21.7453 }, // Macedônia do Norte
-    AL: { lat: 41.1533, lng: 20.1683 }, // Albânia
-    MN: { lat: 46.8625, lng: 103.8467 }, // Mongólia
-    KZ: { lat: 48.0196, lng: 66.9237 }, // Cazaquistão
-    UZ: { lat: 41.3775, lng: 64.5853 }, // Uzbequistão
-    AF: { lat: 33.9391, lng: 67.7100 }, // Afeganistão
-    NP: { lat: 28.3949, lng: 84.1240 }, // Nepal
-    MM: { lat: 21.9162, lng: 95.9560 }, // Mianmar
-    KH: { lat: 12.5657, lng: 104.9910 }, // Camboja
-    LA: { lat: 19.8563, lng: 102.4955 }, // Laos
-    YE: { lat: 15.5527, lng: 48.5164 }, // Iêmen
-    OM: { lat: 21.4735, lng: 55.9754 }, // Omã
-    QA: { lat: 25.2854, lng: 51.5310 }, // Qatar
-    KW: { lat: 29.3117, lng: 47.4818 }, // Kuwait
-    BH: { lat: 26.0667, lng: 50.5577 }, // Bahrein
-    JO: { lat: 30.5852, lng: 36.2384 }, // Jordânia
-    PS: { lat: 31.9522, lng: 35.2332 }, // Palestina
-    GE: { lat: 42.3154, lng: 43.3569 }, // Geórgia
-    AM: { lat: 40.0691, lng: 45.0382 }, // Armênia
-    AZ: { lat: 40.1431, lng: 47.5769 }, // Azerbaijão
-    BY: { lat: 53.7098, lng: 27.9534 }, // Bielorrússia
-    MD: { lat: 47.4116, lng: 28.3699 }, // Moldávia
-    EE: { lat: 58.5953, lng: 25.0136 }, // Estônia
-    LV: { lat: 56.8796, lng: 24.6032 }, // Letônia
-    LT: { lat: 55.1694, lng: 23.8813 }, // Lituânia
-    LU: { lat: 49.8153, lng: 6.1296 }, // Luxemburgo
-    IS: { lat: 64.9631, lng: -19.0208 }, // Islândia
-    ZW: { lat: -19.0154, lng: 29.1549 }, // Zimbábue
-    ZM: { lat: -13.1339, lng: 27.8493 }, // Zâmbia
-    MZ: { lat: -18.6657, lng: 35.5296 }, // Moçambique
-    AO: { lat: -11.2027, lng: 17.8739 }, // Angola
-    MG: { lat: -18.7669, lng: 46.8691 }, // Madagascar
-    MU: { lat: -20.3484, lng: 57.5522 }, // Maurícia
-  };
+  // Normalizar código
+  const code = countryCode.toUpperCase().trim();
 
-  // Se não encontrar no mapeamento, retornar null para indicar que não temos dados
-  // Em vez de usar hash que gera coordenadas completamente erradas
-  if (!countryCenters[countryCode.toUpperCase()]) {
-    // Retornar (0, 0) como indicador de "desconhecido" - será tratado no código chamador
-    return { lat: 0, lng: 0 };
+  if (COUNTRY_CENTERS[code]) {
+    const [lat, lng] = COUNTRY_CENTERS[code];
+    return { lat, lng };
   }
-  
-  return countryCenters[countryCode.toUpperCase()];
+
+  // Falha: retorna NaN para filtrar posteriormente
+  return { lat: NaN, lng: NaN };
 }
+
+
 
 /**
  * Limites aproximados (bounding boxes) dos países para validação
@@ -829,27 +641,27 @@ function isCoordinatesInCountry(lat: number, lng: number, countryCode: string): 
   if (!bounds) {
     // Se não temos bounds para o país, usar verificação por distância do centro
     const center = getCountryCenter(countryCode);
-    
+
     // Se o centro é (0, 0), significa que não temos dados do país
     // Neste caso, ser muito tolerante - aceitar coordenadas válidas
     if (center.lat === 0 && center.lng === 0) {
       // Apenas rejeitar coordenadas obviamente inválidas
-      return !(lat === 0 && lng === 0) && 
-             lat >= -90 && lat <= 90 && 
-             lng >= -180 && lng <= 180;
+      return !(lat === 0 && lng === 0) &&
+        lat >= -90 && lat <= 90 &&
+        lng >= -180 && lng <= 180;
     }
-    
+
     // Se temos centro válido, usar verificação por distância (mais tolerante)
     const maxDistance = 50; // Aumentado de 30 para 50 graus (mais tolerante)
     const latDiff = Math.abs(lat - center.lat);
     const lngDiff = Math.abs(lng - center.lng);
     return latDiff < maxDistance && lngDiff < maxDistance;
   }
-  
+
   // Para países com bounds, usar margem de erro para coordenadas próximas das fronteiras
   const margin = 1.0; // Margem de 1 grau para coordenadas próximas das fronteiras
-  return lat >= bounds.minLat - margin && lat <= bounds.maxLat + margin && 
-         lng >= bounds.minLng - margin && lng <= bounds.maxLng + margin;
+  return lat >= bounds.minLat - margin && lat <= bounds.maxLat + margin &&
+    lng >= bounds.minLng - margin && lng <= bounds.maxLng + margin;
 }
 
 /**
@@ -857,23 +669,23 @@ function isCoordinatesInCountry(lat: number, lng: number, countryCode: string): 
  * Mais tolerante - só corrige se claramente fora do país
  */
 function validateAndCorrectCoordinates(
-  lat: number, 
-  lng: number, 
-  countryCode: string, 
+  lat: number,
+  lng: number,
+  countryCode: string,
   countryName: string
 ): { lat: number; lng: number; corrected: boolean } {
   const normalizedCode = normalizeCountryCode(countryCode, countryName);
-  
+
   if (!normalizedCode) {
     // Se não conseguimos identificar o país, manter coordenadas originais
     return { lat, lng, corrected: false };
   }
-  
+
   // Se as coordenadas estão dentro dos limites do país, manter
   if (isCoordinatesInCountry(lat, lng, normalizedCode)) {
     return { lat, lng, corrected: false };
   }
-  
+
   // Verificar se o centro do país é válido (não é 0,0 do fallback)
   const center = getCountryCenter(normalizedCode);
   if (center.lat === 0 && center.lng === 0) {
@@ -881,7 +693,7 @@ function validateAndCorrectCoordinates(
     // (evita corrigir para coordenadas erradas geradas por hash)
     return { lat, lng, corrected: false };
   }
-  
+
   // Se não estão, corrigir para o centro do país
   // Em produção, reduzir logging para evitar spam no console
   if (process.env.NODE_ENV !== 'production') {
@@ -920,15 +732,20 @@ export function transformToRadioStation(
   if (latitude === 0 && longitude === 0) {
     if (countryCode) {
       const countryCoords = getCountryCenter(countryCode);
-      if (countryCoords.lat !== 0 || countryCoords.lng !== 0) {
+      // Validar: getCountryCenter retorna NaN quando falha
+      if (!isNaN(countryCoords.lat) && !isNaN(countryCoords.lng)) {
         latitude = countryCoords.lat;
         longitude = countryCoords.lng;
+      } else {
+        // Se falhou o fallback de país, marcar como inválido (NaN)
+        // O código chamador deve filtrar estações com coordenadas inválidas
+        latitude = NaN;
+        longitude = NaN;
       }
-    }
-    if (latitude === 0 && longitude === 0) {
-      const hash = (apiStation.name || apiStation.stationuuid || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      latitude = (hash % 180) - 90;
-      longitude = ((hash * 7) % 360) - 180;
+    } else {
+      // Sem país e sem coordenadas: inválido
+      latitude = NaN;
+      longitude = NaN;
     }
   }
 
@@ -1060,7 +877,7 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
     }
 
     log(`Buscando ${limit} estações populares (carregamento rápido)...`);
-    
+
     // Buscar apenas as mais populares (ordenadas por votos, limitadas)
     // Isso é muito mais rápido que carregar tudo
     const apiStations = await apiRequest<RadioBrowserStation[]>(
@@ -1072,20 +889,20 @@ export async function getPopularStationsInitial(limit: number = 2000): Promise<R
     // Transformar apenas as funcionais (já filtradas pela API com hidebroken=true)
     const workingStations = apiStations.filter((s) => s.lastcheckok === 1);
     log(`Processando ${workingStations.length} estações funcionais...`);
-    
+
     // Processar todas de uma vez (limitado a 2000, então é rápido)
     const transformed = workingStations.map((s, idx) => transformToRadioStation(s, idx));
 
     // Filtrar coordenadas válidas
-    const validStations = transformed.filter(radio => 
-      !isNaN(radio.latitude) && 
+    const validStations = transformed.filter(radio =>
+      !isNaN(radio.latitude) &&
       !isNaN(radio.longitude) &&
       radio.latitude >= -90 && radio.latitude <= 90 &&
       radio.longitude >= -180 && radio.longitude <= 180
     );
 
     // Remover duplicatas
-    const uniqueStations = validStations.filter((station, index, self) => 
+    const uniqueStations = validStations.filter((station, index, self) =>
       index === self.findIndex(s => s.id === station.id)
     );
 
@@ -1266,8 +1083,24 @@ export async function getPopularStationsPrioritized(
 
     log(`Total de ${uniqueStations.length} estações priorizadas processadas`);
 
-    localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
-    localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(uniqueStations));
+      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+    } catch (e: any) {
+      // Se estourar o limite (5MB), tentar salvar apenas as top 2000 estações
+      if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
+        logWarn('Quota de armazenamento excedida ao salvar cache completo. Salvando apenas top 2000...');
+        try {
+          const subset = uniqueStations.slice(0, 2000);
+          localStorage.setItem(CACHE_KEY, JSON.stringify(subset));
+          localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+        } catch (e2) {
+          logWarn('Falha ao salvar até mesmo o cache reduzido:', e2);
+        }
+      } else {
+        logWarn('Erro desconhecido ao salvar cache:', e);
+      }
+    }
 
     report(uniqueStations);
     return uniqueStations;
@@ -1329,7 +1162,7 @@ export async function getAllAvailableStations(
 
     log('Buscando TODAS as estações disponíveis da API (sem priorização)...');
     log('Isso pode levar alguns minutos...');
-    
+
     // Buscar em lotes grandes (1000 por vez até não ter mais)
     const allApiStations: RadioBrowserStation[] = [];
     let offset = 0;
@@ -1359,7 +1192,7 @@ export async function getAllAvailableStations(
 
         // Pequeno delay para não sobrecarregar a API
         await new Promise((resolve) => setTimeout(resolve, 300));
-        
+
         log(`✓ Carregadas ${allApiStations.length} estações da API...`);
       } catch (error) {
         logError(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
@@ -1373,11 +1206,11 @@ export async function getAllAvailableStations(
     // Filtrar apenas funcionais
     const workingStations = allApiStations.filter((s) => s.lastcheckok === 1);
     log(`Processando ${workingStations.length} estações funcionais...`);
-    
+
     // Transformar e filtrar coordenadas válidas
     const transformed: RadioStation[] = [];
     const includedIds = existingStationIds || new Set<string>();
-    
+
     // Processar em chunks para não bloquear a UI
     const chunkSize = 500;
     for (let i = 0; i < workingStations.length; i += chunkSize) {
@@ -1385,23 +1218,23 @@ export async function getAllAvailableStations(
       const chunkResults = chunk
         .filter(s => !includedIds.has(s.stationuuid))
         .map((s, idx) => transformToRadioStation(s, transformed.length + idx));
-      
+
       // Filtrar apenas estações com coordenadas válidas
-      const validResults = chunkResults.filter(radio => 
-        !isNaN(radio.latitude) && 
+      const validResults = chunkResults.filter(radio =>
+        !isNaN(radio.latitude) &&
         !isNaN(radio.longitude) &&
         radio.latitude >= -90 && radio.latitude <= 90 &&
         radio.longitude >= -180 && radio.longitude <= 180 &&
         !includedIds.has(radio.id)
       );
-      
+
       validResults.forEach(r => includedIds.add(r.id));
       transformed.push(...validResults);
-      
+
       if (transformed.length % 1000 === 0 && transformed.length > 0) {
         log(`✓ Processadas ${transformed.length} estações válidas até agora...`);
       }
-      
+
       // Pequeno delay entre chunks
       if (i + chunkSize < workingStations.length) {
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1409,7 +1242,7 @@ export async function getAllAvailableStations(
     }
 
     // Remover duplicatas finais
-    const uniqueStations = transformed.filter((station, index, self) => 
+    const uniqueStations = transformed.filter((station, index, self) =>
       index === self.findIndex(s => s.id === station.id)
     );
 
@@ -1459,7 +1292,7 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
     }
 
     log('Buscando todas as estações da API (pode levar alguns minutos)...');
-    
+
     // Buscar em lotes grandes (1000 por vez até não ter mais)
     const allStations: RadioBrowserStation[] = [];
     let offset = 0;
@@ -1487,7 +1320,7 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
 
         // Pequeno delay para não sobrecarregar a API
         await new Promise((resolve) => setTimeout(resolve, 500));
-        
+
         log(`Carregadas ${allStations.length} estações...`);
       } catch (error) {
         logError(`Erro ao buscar lote ${offset}-${offset + batchSize}:`, error);
@@ -1500,23 +1333,23 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
     // Transformar e filtrar apenas funcionais (em paralelo com chunks para não bloquear)
     const workingStations = allStations.filter((s) => s.lastcheckok === 1);
     log(`Processando ${workingStations.length} estações funcionais...`);
-    
+
     // Processar em chunks para não bloquear
     const chunkSize = 100;
     const transformed: RadioStation[] = [];
-    
+
     for (let i = 0; i < workingStations.length; i += chunkSize) {
       const chunk = workingStations.slice(i, i + chunkSize);
       const chunkResults = chunk.map((s, idx) => transformToRadioStation(s, i + idx));
       // Filtrar apenas estações com coordenadas válidas (não NaN, dentro dos limites geográficos)
-      const validResults = chunkResults.filter(radio => 
-        !isNaN(radio.latitude) && 
+      const validResults = chunkResults.filter(radio =>
+        !isNaN(radio.latitude) &&
         !isNaN(radio.longitude) &&
         radio.latitude >= -90 && radio.latitude <= 90 &&
         radio.longitude >= -180 && radio.longitude <= 180
       );
       transformed.push(...validResults);
-      
+
       // Atualizar estado periodicamente para mostrar progresso ao usuário
       // Atualizar a cada 500 estações processadas para não sobrecarregar o React
       if (transformed.length % 500 === 0 && transformed.length > 0) {
@@ -1524,7 +1357,7 @@ export async function getAllStationsBatches(): Promise<RadioStation[]> {
         // Nota: Não atualizamos o estado aqui para não causar re-renders excessivos
         // As estações serão atualizadas quando todo o processamento terminar
       }
-      
+
       // Pequeno delay entre chunks para não bloquear a UI
       if (i + chunkSize < workingStations.length) {
         await new Promise((resolve) => setTimeout(resolve, 25)); // Reduzido para ser mais rápido
